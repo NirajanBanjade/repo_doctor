@@ -1,0 +1,11 @@
+{
+  "_comment": "StarterTask definition. See docs/api/contracts.md#StarterTask.",
+  "_status": "PLACEHOLDER — field values must be set when sample_repo is built (ARCHITECTURE.md §11 item 4).",
+  "id": "starter-task-001",
+  "title": "TBD",
+  "description": "TBD",
+  "target_symbol": "TBD",
+  "target_file": "TBD",
+  "target_line": 0,
+  "recommended_impact_depth": 2
+}

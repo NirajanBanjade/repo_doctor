@@ -23,7 +23,8 @@ On unfamiliar codebases, developers lose time understanding architecture, resolv
 | **Radius Test Generator** | From the selected impact radius and intended/actual change, identify existing tests and coverage gaps; propose focused regression tests for affected behaviors; after approval, generate and execute tests in the sandbox. | Existing-test recommendations, generated test patch, results per impacted component, and uncovered risks. |
 | **Verification & Documentation** | Run task acceptance tests and appropriate existing/generated regression tests; report observed results; propose setup-documentation fixes and a PR summary. | Evidence-based verification report, test evidence, and documentation patch. |
 
-**MVP constraint:** One trusted **Python/FastAPI** sample repository with multiple service modules, **PostgreSQL**, and **Pytest** tests. Focus ImpactScope on statically traceable Python imports, function calls, and selected FastAPI endpoint-to-service relationships. Do not promise complete detection of dynamic dispatch, hidden runtime dependencies, or cross-service effects.
+**MVP Architecture:**
+ Design OnboardIQ with a modular, language-agnostic architecture using language-specific adapters (Python AST for Python, TypeScript Compiler API for JavaScript/TypeScript, and extensible adapters for other languages). Each adapter converts source-code relationships into a unified dependency graph used by Repository X-Ray, ImpactScope, and the Test Generator. Initially implement and validate Python support, with Node.js and other languages planned for future expansion.
 
 ## 4. End-to-End User Flow
 

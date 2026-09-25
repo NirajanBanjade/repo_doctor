@@ -1,0 +1,21 @@
+version: "3.9"
+
+services:
+  backend:
+    build:
+      context: ../backend
+      dockerfile: ../docker/Dockerfile.backend
+    ports:
+      - "8000:8000"
+    volumes:
+      - repodoc_data:/data
+    environment:
+      - REPODOC_DB_PATH=/data/repodoc.db
+      # Do not add secrets here. Use .env file (never committed).
+
+  # The sandbox container is NOT declared here.
+  # It is spawned programmatically by app/sandbox/docker_runner.py
+  # with per-run resource limits and network isolation.
+
+volumes:
+  repodoc_data:

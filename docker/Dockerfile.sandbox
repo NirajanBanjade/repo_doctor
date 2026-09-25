@@ -1,0 +1,14 @@
+# Sandbox image — used for isolated test execution only.
+# Must be resource-limited at runtime (--cpus=1, --memory=512m, --network=none).
+# See ARCHITECTURE.md §8 and AGENTS.md §9.
+FROM python:3.11-slim
+
+# Install pytest and reporting plugin only.
+RUN pip install --no-cache-dir \
+    pytest>=8.2.0 \
+    pytest-json-report>=1.5.0 \
+    pytest-cov>=5.0.0
+
+# The working copy is mounted read-only at /repo at runtime.
+# No application code is baked into this image.
+WORKDIR /repo
