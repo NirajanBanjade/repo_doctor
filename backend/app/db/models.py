@@ -63,3 +63,21 @@ bob_outputs = sa.Table(
     sa.Column("parsed_ok", sa.Boolean, nullable=False),
     sa.Column("created_at", sa.DateTime, nullable=False),
 )
+
+environment_checks = sa.Table(
+    "environment_checks",
+    metadata,
+    sa.Column("id", sa.Integer, primary_key=True, autoincrement=True),
+    sa.Column("session_id", sa.String, sa.ForeignKey("sessions.id"), nullable=False),
+    sa.Column("step_id", sa.String, nullable=False),
+    sa.Column("command", sa.String, nullable=False),
+    sa.Column(
+        "status", sa.String, nullable=False
+    ),  # verified | failed | blocked | infrastructure_error
+    sa.Column("exit_code", sa.Integer, nullable=True),
+    sa.Column("stdout", sa.Text, nullable=True),
+    sa.Column("stderr", sa.Text, nullable=True),
+    sa.Column("started_at", sa.DateTime, nullable=True),
+    sa.Column("finished_at", sa.DateTime, nullable=True),
+    sa.Column("run_number", sa.Integer, nullable=False, default=1),
+)

@@ -177,3 +177,61 @@ The PRD contains eight documented open questions (see `ARCHITECTURE.md §11`). W
 2. If not listed, add it to `ARCHITECTURE.md §11` before proceeding.
 3. Do not silently invent a requirement. Implement a stub that raises `NotImplementedError` with a description of the decision needed.
 4. Open a discussion item rather than guessing at integration behavior for Bob.
+
+---
+
+## 14. Developer Commands (Backend)
+
+All commands run from `backend/`. The frontend has no build system yet.
+
+```bash
+# Install dependencies
+pip install -r requirements.txt
+
+# Run all tests
+cd backend && python -m pytest
+
+# Run a single test by node ID
+cd backend && python -m pytest tests/test_python_adapter.py::test_extract_nodes_from_fixture -v
+
+# Run a single test file
+cd backend && python -m pytest tests/test_xray_routes.py -v
+
+# Lint (fix auto-fixable issues)
+cd backend && python -m ruff check app/ tests/ --fix
+
+# Format
+cd backend && python -m black app/ tests/
+
+# Check lint + format (CI mode, no writes)
+cd backend && python -m ruff check app/ tests/ && python -m black --check app/ tests/
+```
+
+---
+
+## 15. Non-Obvious Implementation Details (Discovered by Reading Code)
+
+**DB engine is a module-level singleton in `app/db/evidence_store.py`.**
+The global `_engine` variable is lazily initialised on first call to `get_engine()`. Tests MUST reset it between runs — `conftest.py` does this via `evidence_store._engine = None` in an `autouse` fixture. Any new test file that bypasses `conftest.py` will share state across tests and produce false passes.
+
+**Every DB function accepts an optional `db_url` kwarg (default `sqlite:///./repodoc.db`).**
+Integration tests pass an in-memory or `tmp_path`-scoped URL to stay isolated. Do not call store functions without specifying a test URL in test context.
+
+**`adapter_registry.get_adapter(language)` takes a language string, NOT a repo path.**
+`get_adapter_for_repo(repo_path)` is the path-based alternative. The xray route uses `get_adapter(stack["language"])` — calling `get_adapter_for_repo` would bypass stack detection.
+
+**Bob integration always returns `None` today (stub).**
+`app/bob/integration._call_bob` is a stub that logs a warning and returns `None`. All callers handle `None` gracefully. Do not add logic that assumes Bob will return data until the real interface is wired.
+
+**`ruff.toml` excludes `tests/fixtures/syntax_error.py`** — this file is intentionally invalid Python and must not be parsed by any linter or formatter. Black will error on it; exclude it explicitly when formatting.
+
+**`pytest.ini` sets `asyncio_mode = auto`** — all `async def` test functions run automatically without `@pytest.mark.asyncio`. Do not add that decorator; it is redundant and triggers a warning.
+
+**Black line length is 88 (default); ruff line length is 100** — they differ. Black governs actual formatting. The ruff `line-length = 100` setting only prevents ruff from flagging long lines that black intentionally allows.
+
+**`POST /api/v1/sessions/{id}/xray` returns 202, not 200.** The route is synchronous today (runs inline), but the 202 status is intentional — the spec describes it as an async trigger. Do not change this to 200.
+
+**`TypeScriptAdapter.detect()` returns `True` for any repo containing `package.json`**, including Python repos that also have a frontend subfolder. The registry iterates `PythonAdapter` first, so Python wins when both markers exist. New adapters must be inserted *before* `TypeScriptAdapter` in `_REGISTRY`.
+
+**Bob output is persisted even on failure (`parsed_ok=False`, empty `raw_output=""`).**
+`_validate_and_store` always calls `evidence_store.save_bob_output` regardless of whether Bob returned data. This means every X-Ray run produces two `bob_outputs` rows. Do not add a guard that skips the insert on `None` — downstream queries rely on the presence of these rows to detect that agents were attempted.

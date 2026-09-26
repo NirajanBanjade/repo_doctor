@@ -13,7 +13,14 @@ from datetime import datetime, timezone
 import sqlalchemy as sa
 
 from app.analysis.base_adapter import GraphEdge, GraphNode
-from app.db.models import bob_outputs, graph_edges, graph_nodes, metadata, sessions
+from app.db.models import (
+    bob_outputs,
+    environment_checks,
+    graph_edges,
+    graph_nodes,
+    metadata,
+    sessions,
+)
 
 _engine: sa.Engine | None = None
 
@@ -189,3 +196,54 @@ def save_bob_output(
                 created_at=datetime.now(timezone.utc),
             )
         )
+
+
+# ── Environment checks ────────────────────────────────────────────────────────
+
+
+def save_environment_check(
+    session_id: str,
+    step_id: str,
+    command: str,
+    status: str,
+    run_number: int = 1,
+    exit_code: int | None = None,
+    stdout: str | None = None,
+    stderr: str | None = None,
+    started_at: datetime | None = None,
+    finished_at: datetime | None = None,
+    db_url: str = "sqlite:///./repodoc.db",
+) -> None:
+    engine = get_engine(db_url)
+    with engine.begin() as conn:
+        conn.execute(
+            environment_checks.insert().values(
+                session_id=session_id,
+                step_id=step_id,
+                command=command,
+                status=status,
+                run_number=run_number,
+                exit_code=exit_code,
+                stdout=stdout,
+                stderr=stderr,
+                started_at=started_at,
+                finished_at=finished_at,
+            )
+        )
+
+
+def get_environment_checks(
+    session_id: str,
+    run_number: int | None = None,
+    db_url: str = "sqlite:///./repodoc.db",
+) -> list[dict]:
+    engine = get_engine(db_url)
+    query = environment_checks.select().where(
+        environment_checks.c.session_id == session_id
+    )
+    if run_number is not None:
+        query = query.where(environment_checks.c.run_number == run_number)
+    query = query.order_by(environment_checks.c.id)
+    with engine.connect() as conn:
+        rows = conn.execute(query).fetchall()
+    return [dict(r._mapping) for r in rows]

@@ -22,6 +22,7 @@ from pydantic import ValidationError
 
 from app.bob.schemas.architecture_findings import ArchitectureFindings
 from app.bob.schemas.documentation_findings import DocumentationFindings
+from app.bob.schemas.environment_diagnosis import EnvironmentDiagnosis
 from app.db import evidence_store
 
 logger = logging.getLogger(__name__)
@@ -90,6 +91,36 @@ async def run_xray_agents(
         db_url,
     )
     return arch_findings, doc_findings
+
+
+async def run_environment_agent(
+    session_id: str,
+    failed_command: str,
+    stdout: str,
+    stderr: str,
+    readme_excerpt: str,
+    language: str,
+    db_url: str = "sqlite:///./repodoc.db",
+) -> EnvironmentDiagnosis | None:
+    """
+    Invoke the Environment Agent to diagnose a failed setup step.
+    Returns EnvironmentDiagnosis or None if Bob is unavailable.
+    """
+    payload = {
+        "failed_command": failed_command,
+        "stdout": stdout,
+        "stderr": stderr,
+        "readme_excerpt": readme_excerpt,
+        "language": language,
+    }
+    raw = await _call_bob("environment_agent", payload)
+    return _validate_and_store(
+        session_id,
+        "environment_agent",
+        raw,
+        EnvironmentDiagnosis,
+        db_url,
+    )
 
 
 def _validate_and_store(
