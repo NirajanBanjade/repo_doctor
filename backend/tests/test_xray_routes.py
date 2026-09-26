@@ -177,9 +177,16 @@ async def test_get_graph_session_not_found(reset_db, app_client):
 async def test_xray_invalid_repo_path(reset_db, app_client):
     async with app_client as client:
         r = await client.post("/api/v1/sessions", json={"repo_path": "/does/not/exist"})
-        session_id = r.json()["session_id"]
-        r2 = await client.post(f"/api/v1/sessions/{session_id}/xray")
-        assert r2.status_code == 422
+        assert r.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_create_session_normalizes_repo_path(tmp_path, reset_db, app_client):
+    async with app_client as client:
+        r = await client.post("/api/v1/sessions", json={"repo_path": f"{tmp_path}/."})
+
+    assert r.status_code == 201
+    assert r.json()["repo_path"] == str(tmp_path.resolve())
 
 
 @pytest.mark.asyncio

@@ -7,6 +7,8 @@ GET  /api/v1/sessions/{session_id}  — retrieve session state
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
@@ -21,7 +23,19 @@ class CreateSessionRequest(BaseModel):
 
 @router.post("", status_code=201)
 async def create_session(body: CreateSessionRequest) -> dict:
-    return session_svc.create_session(body.repo_path)
+    try:
+        repo_path = Path(body.repo_path).expanduser().resolve(strict=True)
+    except (OSError, RuntimeError) as exc:
+        raise HTTPException(
+            status_code=422, detail="Repository path does not exist"
+        ) from exc
+
+    if not repo_path.is_dir():
+        raise HTTPException(
+            status_code=422, detail="Repository path is not a directory"
+        )
+
+    return session_svc.create_session(str(repo_path))
 
 
 @router.get("/{session_id}")

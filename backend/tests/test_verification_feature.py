@@ -260,9 +260,9 @@ async def test_verification_session_not_found(app_client):
 
 
 @pytest.mark.asyncio
-async def test_verification_no_impact_run_returns_422(app_client):
+async def test_verification_no_impact_run_returns_422(app_client, tmp_path):
     async with app_client as client:
-        r = await client.post("/api/v1/sessions", json={"repo_path": "/tmp/fake"})
+        r = await client.post("/api/v1/sessions", json={"repo_path": str(tmp_path)})
         sid = r.json()["session_id"]
         r2 = await client.get(f"/api/v1/sessions/{sid}/verification")
         assert r2.status_code == 422

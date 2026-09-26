@@ -1,8 +1,12 @@
 .bobignore
 
+# Node.js dependencies
+node_modules/
+
 # Python
 __pycache__/
 *.py[cod]
+.venv/
 
 # Local databases
 backend/repodoc.db

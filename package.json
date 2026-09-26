@@ -1,0 +1,8 @@
+{
+  "name": "repodoc",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "node scripts/dev.mjs"
+  }
+}

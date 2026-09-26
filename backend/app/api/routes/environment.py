@@ -207,6 +207,52 @@ async def get_checks(session_id: str, run_number: int | None = None) -> dict:
     return {"session_id": session_id, "steps": steps}
 
 
+@router.get("/{session_id}/environment/status")
+async def get_status(session_id: str) -> dict:
+    """Return the latest environment run using the shared API contract."""
+    s = session_svc.get_session(session_id)
+    if s is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    rows = evidence_store.get_environment_checks(session_id)
+    if not rows:
+        return {
+            "session_id": session_id,
+            "run_id": "",
+            "checks": [],
+            "all_verified": False,
+            "diagnosis": None,
+        }
+
+    run_number = max(row["run_number"] for row in rows)
+    latest = [row for row in rows if row["run_number"] == run_number]
+    checks = [
+        {
+            "check_id": row["step_id"],
+            "session_id": session_id,
+            "step_index": index,
+            "command": row["command"],
+            "stdout": row["stdout"] or "",
+            "stderr": row["stderr"] or "",
+            "exit_code": row["exit_code"],
+            "status": row["status"],
+            "verified_at": (
+                row["finished_at"].isoformat()
+                if row["status"] == "verified" and row["finished_at"]
+                else None
+            ),
+        }
+        for index, row in enumerate(latest, start=1)
+    ]
+    return {
+        "session_id": session_id,
+        "run_id": f"run-{run_number}",
+        "checks": checks,
+        "all_verified": all(check["status"] == "verified" for check in checks),
+        "diagnosis": None,
+    }
+
+
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 

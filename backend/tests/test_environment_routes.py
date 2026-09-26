@@ -117,9 +117,7 @@ async def test_run_session_not_found(app_client):
 async def test_run_invalid_repo_path(app_client):
     async with app_client as client:
         r = await client.post("/api/v1/sessions", json={"repo_path": "/does/not/exist"})
-        session_id = r.json()["session_id"]
-        r2 = await client.post(f"/api/v1/sessions/{session_id}/environment/run")
-    assert r2.status_code == 422
+    assert r.status_code == 422
 
 
 @pytest.mark.asyncio
@@ -368,3 +366,25 @@ async def test_get_checks_filters_by_run_number(repo_with_readme, app_client):
 
     assert all(s["run_number"] == 1 for s in r2.json()["steps"])
     assert all(s["run_number"] == 2 for s in r3.json()["steps"])
+
+
+@pytest.mark.asyncio
+async def test_get_status_returns_latest_run(repo_with_readme, app_client):
+    mock_results = _make_mock_results(["python -m pytest"])
+    with patch(
+        "app.api.routes.environment.run_setup_plan",
+        new=AsyncMock(return_value=mock_results),
+    ):
+        async with app_client as client:
+            r = await client.post(
+                "/api/v1/sessions", json={"repo_path": repo_with_readme}
+            )
+            session_id = r.json()["session_id"]
+            await client.post(f"/api/v1/sessions/{session_id}/environment/run")
+            status = await client.get(
+                f"/api/v1/sessions/{session_id}/environment/status"
+            )
+
+    assert status.status_code == 200
+    assert status.json()["all_verified"] is True
+    assert status.json()["checks"][0]["command"] == "python -m pytest"
