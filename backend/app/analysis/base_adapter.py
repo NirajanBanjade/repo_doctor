@@ -4,6 +4,7 @@ app/analysis/base_adapter.py
 Abstract interface that all language adapters must implement.
 See ARCHITECTURE.md §4 and AGENTS.md §7 for conventions.
 """
+
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
