@@ -1,0 +1,2 @@
+exclude = ["tests/fixtures/syntax_error.py"]
+line-length = 100
