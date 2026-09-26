@@ -66,16 +66,16 @@ def aggregate_evidence(session_id: str, db_url: str = "sqlite:///./repodoc.db") 
         # Identify impact nodes whose graph edges are all inferred
         all_edges = evidence_store.get_edges(session_id, db_url)
         inferred_targets = {
-            e["target_id"]
-            for e in all_edges
-            if e["evidence_status"] == "inferred"
+            e["target_id"] for e in all_edges if e["evidence_status"] == "inferred"
         }
         inferred_node_ids = [nid for nid in impact_node_ids if nid in inferred_targets]
 
     env_checks = evidence_store.get_environment_checks(session_id, db_url=db_url)
 
     return {
-        "change_description": impact_run.get("change_description") if impact_run else None,
+        "change_description": (
+            impact_run.get("change_description") if impact_run else None
+        ),
         "impact_run": impact_run,
         "impact_node_ids": impact_node_ids,
         "component_statuses": component_statuses,
@@ -103,11 +103,7 @@ def build_fallback_report(evidence: dict) -> dict:
         raw_status = cs_map.get(nid, "no_suitable_test")
         status = _STATUS_MAP.get(raw_status, "no_test")
         # Collect evidence refs from per_test entries
-        refs = [
-            t["nodeid"]
-            for t in evidence["per_test"]
-            if nid in t.get("nodeid", "")
-        ]
+        refs = [t["nodeid"] for t in evidence["per_test"] if nid in t.get("nodeid", "")]
         components_verified.append(
             {
                 "component_id": nid,
@@ -130,8 +126,12 @@ def build_fallback_report(evidence: dict) -> dict:
         if cs_map.get(nid) in (None, "no_suitable_test")
     ]
 
-    change_description = evidence.get("change_description") or "(no change description provided)"
-    pr_summary = _build_pr_summary(change_description, components_verified, unresolved_risks)
+    change_description = (
+        evidence.get("change_description") or "(no change description provided)"
+    )
+    pr_summary = _build_pr_summary(
+        change_description, components_verified, unresolved_risks
+    )
 
     return {
         "components_verified": components_verified,
