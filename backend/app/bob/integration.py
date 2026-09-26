@@ -24,6 +24,8 @@ from app.bob.schemas.architecture_findings import ArchitectureFindings
 from app.bob.schemas.documentation_findings import DocumentationFindings
 from app.bob.schemas.environment_diagnosis import EnvironmentDiagnosis
 from app.bob.schemas.impact_annotations import ImpactAnnotations
+from app.bob.schemas.test_plan import TestPlanProposal
+from app.bob.schemas.verification_report import VerificationReport
 from app.db import evidence_store
 
 logger = logging.getLogger(__name__)
@@ -150,6 +152,44 @@ async def run_environment_agent(
         raw,
         EnvironmentDiagnosis,
         db_url,
+    )
+
+
+async def run_test_agent(
+    session_id: str,
+    selected_nodes: list[dict],
+    existing_test_mappings: list[dict],
+    change_description: str | None,
+    diff_content: str | None,
+    db_url: str = "sqlite:///./repodoc.db",
+) -> TestPlanProposal | None:
+    """
+    Invoke the Test Agent to propose regression test scenarios.
+    Returns TestPlanProposal or None if Bob is unavailable.
+    Degrades gracefully — callers handle None by returning empty scenario list.
+    """
+    payload = {
+        "selected_nodes": selected_nodes,
+        "existing_test_mappings": existing_test_mappings,
+        "change_description": change_description or "",
+        "diff_content": diff_content or "",
+    }
+    raw = await _call_bob("test_agent", payload)
+    return _validate_and_store(session_id, "test_agent", raw, TestPlanProposal, db_url)
+
+
+async def run_verification_agent(
+    session_id: str,
+    evidence_summary: dict,
+    db_url: str = "sqlite:///./repodoc.db",
+) -> VerificationReport | None:
+    """
+    Invoke the Verification Agent to reconcile test results against impact risks.
+    Returns VerificationReport or None if Bob is unavailable.
+    """
+    raw = await _call_bob("verification_agent", evidence_summary)
+    return _validate_and_store(
+        session_id, "verification_agent", raw, VerificationReport, db_url
     )
 
 

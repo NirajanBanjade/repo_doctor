@@ -22,6 +22,9 @@ from app.db.models import (
     impact_results,
     metadata,
     sessions,
+    test_plans,
+    test_results,
+    verification_reports,
 )
 
 _engine: sa.Engine | None = None
@@ -297,6 +300,112 @@ def get_impact_run(run_id: str, db_url: str = "sqlite:///./repodoc.db") -> dict 
     return dict(row._mapping) if row else None
 
 
+# ── Test plans ────────────────────────────────────────────────────────────────
+
+
+def save_test_plan(
+    plan_id: str,
+    session_id: str,
+    impact_run_id: str,
+    scenarios: list[dict],
+    db_url: str = "sqlite:///./repodoc.db",
+) -> None:
+    engine = get_engine(db_url)
+    with engine.begin() as conn:
+        conn.execute(
+            test_plans.insert().values(
+                plan_id=plan_id,
+                session_id=session_id,
+                impact_run_id=impact_run_id,
+                scenarios=scenarios,
+                status="pending",
+                created_at=datetime.now(timezone.utc),
+            )
+        )
+
+
+def get_test_plan(plan_id: str, db_url: str = "sqlite:///./repodoc.db") -> dict | None:
+    engine = get_engine(db_url)
+    with engine.connect() as conn:
+        row = conn.execute(
+            test_plans.select().where(test_plans.c.plan_id == plan_id)
+        ).fetchone()
+    return dict(row._mapping) if row else None
+
+
+def get_test_plan_by_impact_run(
+    impact_run_id: str, db_url: str = "sqlite:///./repodoc.db"
+) -> dict | None:
+    engine = get_engine(db_url)
+    with engine.connect() as conn:
+        row = conn.execute(
+            test_plans.select()
+            .where(test_plans.c.impact_run_id == impact_run_id)
+            .order_by(test_plans.c.id.desc())
+            .limit(1)
+        ).fetchone()
+    return dict(row._mapping) if row else None
+
+
+def update_test_plan_status(
+    plan_id: str, status: str, db_url: str = "sqlite:///./repodoc.db"
+) -> None:
+    engine = get_engine(db_url)
+    with engine.begin() as conn:
+        conn.execute(
+            test_plans.update()
+            .where(test_plans.c.plan_id == plan_id)
+            .values(status=status)
+        )
+
+
+# ── Test results ──────────────────────────────────────────────────────────────
+
+
+def save_test_result(
+    result_id: str,
+    plan_id: str,
+    session_id: str,
+    stdout: str,
+    stderr: str,
+    exit_code: int | None,
+    infrastructure_error: bool,
+    per_test: list[dict],
+    component_statuses: list[dict],
+    db_url: str = "sqlite:///./repodoc.db",
+) -> None:
+    engine = get_engine(db_url)
+    with engine.begin() as conn:
+        conn.execute(
+            test_results.insert().values(
+                result_id=result_id,
+                plan_id=plan_id,
+                session_id=session_id,
+                stdout=stdout,
+                stderr=stderr,
+                exit_code=exit_code,
+                infrastructure_error=infrastructure_error,
+                per_test=per_test,
+                component_statuses=component_statuses,
+                created_at=datetime.now(timezone.utc),
+            )
+        )
+
+
+def get_test_result_by_plan(
+    plan_id: str, db_url: str = "sqlite:///./repodoc.db"
+) -> dict | None:
+    engine = get_engine(db_url)
+    with engine.connect() as conn:
+        row = conn.execute(
+            test_results.select()
+            .where(test_results.c.plan_id == plan_id)
+            .order_by(test_results.c.id.desc())
+            .limit(1)
+        ).fetchone()
+    return dict(row._mapping) if row else None
+
+
 def get_impact_nodes(run_id: str, db_url: str = "sqlite:///./repodoc.db") -> list[dict]:
     engine = get_engine(db_url)
     with engine.connect() as conn:
@@ -315,6 +424,47 @@ def get_latest_impact_run(
             impact_results.select()
             .where(impact_results.c.session_id == session_id)
             .order_by(impact_results.c.id.desc())
+            .limit(1)
+        ).fetchone()
+    return dict(row._mapping) if row else None
+
+
+# ── Verification reports ──────────────────────────────────────────────────────
+
+
+def save_verification_report(
+    report_id: str,
+    session_id: str,
+    components_verified: list[dict],
+    unresolved_risks: list[dict],
+    documentation_gaps: list[dict],
+    pr_summary: str,
+    db_url: str = "sqlite:///./repodoc.db",
+) -> None:
+    engine = get_engine(db_url)
+    with engine.begin() as conn:
+        conn.execute(
+            verification_reports.insert().values(
+                report_id=report_id,
+                session_id=session_id,
+                components_verified=components_verified,
+                unresolved_risks=unresolved_risks,
+                documentation_gaps=documentation_gaps,
+                pr_summary=pr_summary,
+                created_at=datetime.now(timezone.utc),
+            )
+        )
+
+
+def get_latest_verification_report(
+    session_id: str, db_url: str = "sqlite:///./repodoc.db"
+) -> dict | None:
+    engine = get_engine(db_url)
+    with engine.connect() as conn:
+        row = conn.execute(
+            verification_reports.select()
+            .where(verification_reports.c.session_id == session_id)
+            .order_by(verification_reports.c.id.desc())
             .limit(1)
         ).fetchone()
     return dict(row._mapping) if row else None

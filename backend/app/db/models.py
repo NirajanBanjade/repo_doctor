@@ -82,6 +82,43 @@ environment_checks = sa.Table(
     sa.Column("run_number", sa.Integer, nullable=False, default=1),
 )
 
+test_plans = sa.Table(
+    "test_plans",
+    metadata,
+    sa.Column("id", sa.Integer, primary_key=True, autoincrement=True),
+    sa.Column("plan_id", sa.String, nullable=False, unique=True),
+    sa.Column("session_id", sa.String, sa.ForeignKey("sessions.id"), nullable=False),
+    sa.Column(
+        "impact_run_id",
+        sa.String,
+        sa.ForeignKey("impact_results.run_id"),
+        nullable=False,
+    ),
+    sa.Column("scenarios", sa.JSON, nullable=False),
+    sa.Column(
+        "status", sa.String, nullable=False, default="pending"
+    ),  # pending | approved | rejected
+    sa.Column("created_at", sa.DateTime, nullable=False),
+)
+
+test_results = sa.Table(
+    "test_results",
+    metadata,
+    sa.Column("id", sa.Integer, primary_key=True, autoincrement=True),
+    sa.Column("result_id", sa.String, nullable=False, unique=True),
+    sa.Column(
+        "plan_id", sa.String, sa.ForeignKey("test_plans.plan_id"), nullable=False
+    ),
+    sa.Column("session_id", sa.String, sa.ForeignKey("sessions.id"), nullable=False),
+    sa.Column("stdout", sa.Text, nullable=True),
+    sa.Column("stderr", sa.Text, nullable=True),
+    sa.Column("exit_code", sa.Integer, nullable=True),
+    sa.Column("infrastructure_error", sa.Boolean, nullable=False, default=False),
+    sa.Column("per_test", sa.JSON, nullable=False),  # list of {nodeid, outcome}
+    sa.Column("component_statuses", sa.JSON, nullable=False),
+    sa.Column("created_at", sa.DateTime, nullable=False),
+)
+
 impact_results = sa.Table(
     "impact_results",
     metadata,
@@ -104,4 +141,17 @@ impact_nodes = sa.Table(
     ),
     sa.Column("node_id", sa.String, nullable=False),
     sa.Column("depth_level", sa.Integer, nullable=False),
+)
+
+verification_reports = sa.Table(
+    "verification_reports",
+    metadata,
+    sa.Column("id", sa.Integer, primary_key=True, autoincrement=True),
+    sa.Column("report_id", sa.String, nullable=False, unique=True),
+    sa.Column("session_id", sa.String, sa.ForeignKey("sessions.id"), nullable=False),
+    sa.Column("components_verified", sa.JSON, nullable=False),
+    sa.Column("unresolved_risks", sa.JSON, nullable=False),
+    sa.Column("documentation_gaps", sa.JSON, nullable=False),
+    sa.Column("pr_summary", sa.Text, nullable=False),
+    sa.Column("created_at", sa.DateTime, nullable=False),
 )
