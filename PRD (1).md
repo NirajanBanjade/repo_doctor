@@ -24,7 +24,7 @@ On unfamiliar codebases, developers lose time understanding architecture, resolv
 | **Verification & Documentation** | Run task acceptance tests and appropriate existing/generated regression tests; report observed results; propose setup-documentation fixes and a PR summary. | Evidence-based verification report, test evidence, and documentation patch. |
 
 **MVP Architecture:**
- Design OnboardIQ with a modular, language-agnostic architecture using language-specific adapters (Python AST for Python, TypeScript Compiler API for JavaScript/TypeScript, and extensible adapters for other languages). Each adapter converts source-code relationships into a unified dependency graph used by Repository X-Ray, ImpactScope, and the Test Generator. Initially implement and validate Python support, with Node.js and other languages planned for future expansion.
+ Design RepoDoc with a modular, language-agnostic architecture using language-specific adapters (Python AST for Python, TypeScript Compiler API for JavaScript/TypeScript, and extensible adapters for other languages). Each adapter converts source-code relationships into a unified dependency graph used by Repository X-Ray, ImpactScope, and the Test Generator. Initially implement and validate Python support, with Node.js and other languages planned for future expansion.
 
 ## 4. End-to-End User Flow
 

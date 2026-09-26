@@ -13,13 +13,7 @@ RepoDoc helps a new developer understand an unfamiliar codebase, verify the envi
 
 ---
 
-## 2. Canonical Product Name
-
-The product is **RepoDoc**. Do not use "OnboardIQ" (an inconsistency in the original PRD).
-
----
-
-## 3. Repository Layout
+## 2. Repository Layout
 
 ```
 repodoc/
@@ -38,7 +32,7 @@ Never place application code in the root directory. Never put frontend code in `
 
 ---
 
-## 4. Architectural Constraints (Non-Negotiable)
+## 3. Architectural Constraints (Non-Negotiable)
 
 1. **Three-layer separation:** Frontend → Backend → Bob. The frontend never calls Bob directly. Bob never writes to the database directly.
 2. **Backend owns state.** All session state, evidence, graph data, and test results live in SQLite under `backend/`. No state is stored in the frontend or in Bob.
@@ -53,7 +47,7 @@ Never place application code in the root directory. Never put frontend code in `
 
 ---
 
-## 5. Backend Coding Conventions (Python / FastAPI)
+## 4. Backend Coding Conventions (Python / FastAPI)
 
 - **Python version:** 3.11+.
 - **Formatter:** Black (line length 88). All code must pass `black --check` before commit.
@@ -72,7 +66,7 @@ Never place application code in the root directory. Never put frontend code in `
 
 ---
 
-## 6. Frontend Coding Conventions (React / TypeScript)
+## 5. Frontend Coding Conventions (React / TypeScript)
 
 - **TypeScript strict mode** (`"strict": true` in tsconfig). No `any` without an explicit comment explaining why.
 - **Formatter:** Prettier (default config). All code must pass `prettier --check` before commit.
@@ -87,7 +81,7 @@ Never place application code in the root directory. Never put frontend code in `
 
 ---
 
-## 7. Language Adapter Conventions
+## 6. Language Adapter Conventions
 
 - Every adapter must extend `AdapterBase` from `app/analysis/base_adapter.py`.
 - `detect(repo_path)` must be fast (file-system check only, no parsing). It returns `True` if this adapter should process the repo.
@@ -99,7 +93,7 @@ Never place application code in the root directory. Never put frontend code in `
 
 ---
 
-## 8. IBM Bob Integration Rules
+## 7. IBM Bob Integration Rules
 
 - Bob is invoked only from `app/bob/integration.py`. No other module may call Bob directly.
 - Each agent invocation must be logged to `bob_outputs` table with raw response, `parsed_ok` flag, and timestamp.
@@ -110,7 +104,7 @@ Never place application code in the root directory. Never put frontend code in `
 
 ---
 
-## 9. Sandbox and Test Execution Rules
+## 8. Sandbox and Test Execution Rules
 
 - The sandbox image is defined in `docker/Dockerfile.sandbox`. It is built once and reused per session.
 - All test execution happens inside the sandbox via `app/sandbox/test_executor.py`. No pytest calls on the host.
@@ -121,7 +115,7 @@ Never place application code in the root directory. Never put frontend code in `
 
 ---
 
-## 10. Evidence and Honesty Requirements
+## 9. Evidence and Honesty Requirements
 
 These rules directly implement the PRD's safety and reliability section (§8):
 
@@ -132,7 +126,7 @@ These rules directly implement the PRD's safety and reliability section (§8):
 
 ---
 
-## 11. Feature Implementation Sequence
+## 10. Feature Implementation Sequence
 
 Features must be implemented in this order. Do not start a feature until its dependencies are complete and passing.
 
@@ -159,7 +153,7 @@ Features must be implemented in this order. Do not start a feature until its dep
 
 ---
 
-## 12. Testing Requirements
+## 11. Testing Requirements
 
 - **Unit tests:** Required for every service module, adapter, and Bob schema validator.
 - **Integration tests:** Required for every API route. Use `httpx.AsyncClient` with a test SQLite database.
@@ -169,7 +163,7 @@ Features must be implemented in this order. Do not start a feature until its dep
 
 ---
 
-## 13. What to Do When the PRD Is Ambiguous
+## 12. What to Do When the PRD Is Ambiguous
 
 The PRD contains eight documented open questions (see `ARCHITECTURE.md §11`). When you encounter an ambiguity:
 
@@ -180,7 +174,7 @@ The PRD contains eight documented open questions (see `ARCHITECTURE.md §11`). W
 
 ---
 
-## 14. Developer Commands (Backend)
+## 13. Developer Commands (Backend)
 
 All commands run from `backend/`. The frontend has no build system yet.
 
@@ -209,7 +203,7 @@ cd backend && python -m ruff check app/ tests/ && python -m black --check app/ t
 
 ---
 
-## 15. Non-Obvious Implementation Details (Discovered by Reading Code)
+## 14. Non-Obvious Implementation Details (Discovered by Reading Code)
 
 **DB engine is a module-level singleton in `app/db/evidence_store.py`.**
 The global `_engine` variable is lazily initialised on first call to `get_engine()`. Tests MUST reset it between runs — `conftest.py` does this via `evidence_store._engine = None` in an `autouse` fixture. Any new test file that bypasses `conftest.py` will share state across tests and produce false passes.

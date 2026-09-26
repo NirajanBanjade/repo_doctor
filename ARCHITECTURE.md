@@ -376,7 +376,7 @@ The following points are unresolved in the PRD and must be decided before implem
 
 | # | Issue | Location in PRD | Decision needed |
 |---|---|---|---|
-| 1 | The product is called **RepoDoc** in the title but **OnboardIQ** in §3 MVP Architecture. | §3 | Confirm canonical product name. |
+| 1 | The product is called **RepoDoc** throughout. The original PRD §3 MVP Architecture incorrectly used "OnboardIQ"; that has been corrected. | §3 | Resolved — canonical name is **RepoDoc**. |
 | 2 | Bob 2.0 orchestration API is undefined. The PRD says "implement integration using the Bob features actually available in the hackathon environment." No specific invocation endpoint is given. | §6 | Document exactly which Bob interface (CLI, HTTP, SDK) is available and what the structured output format is. |
 | 3 | TypeScript adapter is listed in the tech stack but the MVP explicitly says "initially implement Python support." The TypeScript Compiler API requires a Node.js process. | §3, §7 | Confirm TypeScript adapter is stub-only for MVP; define how the Node.js subprocess is spawned from Python if it is in scope. |
 | 4 | The sample repository specification (§9) says "2–3 onboarding obstacles, one bounded starter task, one seeded regression." The sample repo is not created or described anywhere. | §9 | Define the sample repo contents, the seeded regression location, and the starter task before implementing the demo flow. |
