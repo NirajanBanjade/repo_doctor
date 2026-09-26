@@ -18,6 +18,8 @@ from app.db.models import (
     environment_checks,
     graph_edges,
     graph_nodes,
+    impact_nodes,
+    impact_results,
     metadata,
     sessions,
 )
@@ -247,3 +249,72 @@ def get_environment_checks(
     with engine.connect() as conn:
         rows = conn.execute(query).fetchall()
     return [dict(r._mapping) for r in rows]
+
+
+# ── Impact runs ───────────────────────────────────────────────────────────────
+
+
+def save_impact_run(
+    session_id: str,
+    run_id: str,
+    origin_ids: list[str],
+    depth: int,
+    node_depths: dict[str, int],
+    change_description: str | None = None,
+    unresolved_symbols: list[str] | None = None,
+    db_url: str = "sqlite:///./repodoc.db",
+) -> None:
+    engine = get_engine(db_url)
+    now = datetime.now(timezone.utc)
+    with engine.begin() as conn:
+        conn.execute(
+            impact_results.insert().values(
+                run_id=run_id,
+                session_id=session_id,
+                origin_ids=origin_ids,
+                depth=depth,
+                change_description=change_description,
+                unresolved_symbols=unresolved_symbols or [],
+                created_at=now,
+            )
+        )
+        if node_depths:
+            conn.execute(
+                impact_nodes.insert(),
+                [
+                    {"run_id": run_id, "node_id": nid, "depth_level": d}
+                    for nid, d in node_depths.items()
+                ],
+            )
+
+
+def get_impact_run(run_id: str, db_url: str = "sqlite:///./repodoc.db") -> dict | None:
+    engine = get_engine(db_url)
+    with engine.connect() as conn:
+        row = conn.execute(
+            impact_results.select().where(impact_results.c.run_id == run_id)
+        ).fetchone()
+    return dict(row._mapping) if row else None
+
+
+def get_impact_nodes(run_id: str, db_url: str = "sqlite:///./repodoc.db") -> list[dict]:
+    engine = get_engine(db_url)
+    with engine.connect() as conn:
+        rows = conn.execute(
+            impact_nodes.select().where(impact_nodes.c.run_id == run_id)
+        ).fetchall()
+    return [dict(r._mapping) for r in rows]
+
+
+def get_latest_impact_run(
+    session_id: str, db_url: str = "sqlite:///./repodoc.db"
+) -> dict | None:
+    engine = get_engine(db_url)
+    with engine.connect() as conn:
+        row = conn.execute(
+            impact_results.select()
+            .where(impact_results.c.session_id == session_id)
+            .order_by(impact_results.c.id.desc())
+            .limit(1)
+        ).fetchone()
+    return dict(row._mapping) if row else None

@@ -81,3 +81,27 @@ environment_checks = sa.Table(
     sa.Column("finished_at", sa.DateTime, nullable=True),
     sa.Column("run_number", sa.Integer, nullable=False, default=1),
 )
+
+impact_results = sa.Table(
+    "impact_results",
+    metadata,
+    sa.Column("id", sa.Integer, primary_key=True, autoincrement=True),
+    sa.Column("run_id", sa.String, nullable=False, unique=True),
+    sa.Column("session_id", sa.String, sa.ForeignKey("sessions.id"), nullable=False),
+    sa.Column("origin_ids", sa.JSON, nullable=False),
+    sa.Column("depth", sa.Integer, nullable=False),
+    sa.Column("change_description", sa.Text, nullable=True),
+    sa.Column("unresolved_symbols", sa.JSON, nullable=False),
+    sa.Column("created_at", sa.DateTime, nullable=False),
+)
+
+impact_nodes = sa.Table(
+    "impact_nodes",
+    metadata,
+    sa.Column("id", sa.Integer, primary_key=True, autoincrement=True),
+    sa.Column(
+        "run_id", sa.String, sa.ForeignKey("impact_results.run_id"), nullable=False
+    ),
+    sa.Column("node_id", sa.String, nullable=False),
+    sa.Column("depth_level", sa.Integer, nullable=False),
+)

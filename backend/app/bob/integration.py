@@ -23,6 +23,7 @@ from pydantic import ValidationError
 from app.bob.schemas.architecture_findings import ArchitectureFindings
 from app.bob.schemas.documentation_findings import DocumentationFindings
 from app.bob.schemas.environment_diagnosis import EnvironmentDiagnosis
+from app.bob.schemas.impact_annotations import ImpactAnnotations
 from app.db import evidence_store
 
 logger = logging.getLogger(__name__)
@@ -91,6 +92,35 @@ async def run_xray_agents(
         db_url,
     )
     return arch_findings, doc_findings
+
+
+async def run_impact_agent(
+    session_id: str,
+    origin_ids: list[str],
+    bfs_nodes: list[dict],
+    bfs_edges: list[dict],
+    change_description: str | None,
+    db_url: str = "sqlite:///./repodoc.db",
+) -> ImpactAnnotations | None:
+    """
+    Invoke the Impact Agent to annotate the BFS result with risk hypotheses.
+    Returns ImpactAnnotations or None if Bob is unavailable.
+    All annotations have evidence_status='inferred'.
+    """
+    payload = {
+        "origin_ids": origin_ids,
+        "bfs_nodes": bfs_nodes,
+        "bfs_edges": bfs_edges,
+        "change_description": change_description or "",
+    }
+    raw = await _call_bob("impact_agent", payload)
+    return _validate_and_store(
+        session_id,
+        "impact_agent",
+        raw,
+        ImpactAnnotations,
+        db_url,
+    )
 
 
 async def run_environment_agent(
