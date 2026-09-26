@@ -6,6 +6,9 @@ FastAPI application entry point.
 
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 
 from app.api.routes import (
@@ -18,9 +21,14 @@ from app.api.routes import (
 )
 from app.db.evidence_store import init_db
 
-app = FastAPI(title="RepoDoc API", version="0.1.0")
 
-app.add_event_handler("startup", lambda: init_db())
+@asynccontextmanager
+async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
+    init_db()
+    yield
+
+
+app = FastAPI(title="RepoDoc API", version="0.1.0", lifespan=lifespan)
 
 app.include_router(sessions.router, prefix="/api/v1/sessions", tags=["sessions"])
 app.include_router(xray.router, prefix="/api/v1/sessions", tags=["xray"])

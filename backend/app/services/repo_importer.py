@@ -35,7 +35,7 @@ def detect_stack(repo_path: str) -> dict:
     language = _detect_language(repo_path)
     framework = _detect_framework(repo_path, language)
     test_runner = _detect_test_runner(repo_path, language)
-    adapter_available = language in ("python",)
+    adapter_available = language in ("python", "typescript")
 
     if language == "unknown":
         logger.warning("repo_importer: could not detect language for %s", repo_path)
@@ -50,12 +50,25 @@ def detect_stack(repo_path: str) -> dict:
 
 def _detect_language(repo_path: str) -> str:
     for marker in _PYTHON_MARKERS:
-        if os.path.exists(os.path.join(repo_path, marker)):
+        if _contains_file(repo_path, marker):
             return "python"
     for marker in _NODE_MARKERS:
-        if os.path.exists(os.path.join(repo_path, marker)):
+        if _contains_file(repo_path, marker):
             return "typescript"
     return "unknown"
+
+
+def _contains_file(repo_path: str, filename: str) -> bool:
+    for root, directories, files in os.walk(repo_path):
+        directories[:] = [
+            directory
+            for directory in directories
+            if not directory.startswith(".")
+            and directory not in ("node_modules", "dist", "build", "coverage")
+        ]
+        if filename in files:
+            return True
+    return False
 
 
 def _detect_framework(repo_path: str, language: str) -> str | None:

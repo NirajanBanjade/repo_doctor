@@ -36,7 +36,7 @@ def test_typescript_via_package_json(tmp_path):
     )
     stack = detect_stack(str(tmp_path))
     assert stack["language"] == "typescript"
-    assert stack["adapter_available"] is False
+    assert stack["adapter_available"] is True
 
 
 def test_unknown_language(tmp_path):
