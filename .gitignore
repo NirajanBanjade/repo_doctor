@@ -1,0 +1,11 @@
+.bobignore
+
+# Python
+__pycache__/
+*.py[cod]
+
+# Local databases
+backend/repodoc.db
+
+# Pytest
+.pytest_cache/
