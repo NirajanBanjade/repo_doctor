@@ -195,7 +195,18 @@ def build_component_statuses(
         else:
             status = "covered_passed"
 
-        statuses.append({"component_id": component_id, "status": status})
+        passed = sum(outcome == "passed" for outcome in outcomes)
+        failed = sum(outcome in ("failed", "error") for outcome in outcomes)
+        statuses.append(
+            {
+                "component_id": component_id,
+                "node_id": component_id,
+                "status": status,
+                "test_count": len(outcomes),
+                "passed": passed,
+                "failed": failed,
+            }
+        )
 
     return statuses
 

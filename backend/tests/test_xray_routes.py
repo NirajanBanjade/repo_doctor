@@ -200,6 +200,30 @@ async def test_get_graph_before_xray_has_warning(python_repo, reset_db, app_clie
         assert any("no_nodes" in w for w in r2.json()["warnings"])
 
 
+@pytest.mark.asyncio
+async def test_get_graph_before_xray_does_not_validate_wiki(
+    tmp_path, reset_db, app_client
+):
+    wiki = tmp_path / "wiki"
+    wiki.mkdir()
+    (wiki / "feature.md").write_text(
+        "# Feature\n\n## Frontend\n\n`missing.jsx`\n", encoding="utf-8"
+    )
+    async with app_client as client:
+        r = await client.post(
+            "/api/v1/sessions",
+            json={"repo_path": str(tmp_path), "architecture_path": str(wiki)},
+        )
+        session_id = r.json()["session_id"]
+        graph = await client.get(f"/api/v1/sessions/{session_id}/xray/graph")
+
+    assert graph.status_code == 200
+    assert graph.json()["features"] == []
+    assert graph.json()["warnings"] == [
+        "no_nodes: graph is empty — X-Ray may not have run yet"
+    ]
+
+
 # ── Session status transitions ────────────────────────────────────────────────
 
 

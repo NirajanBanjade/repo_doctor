@@ -1,0 +1,105 @@
+"""Tests for authoritative feature-wiki parsing."""
+
+from __future__ import annotations
+
+from app.services.feature_wiki import build_wiki_graph, parse_feature_wiki
+
+
+def test_parses_feature_files_flows_and_boundaries(tmp_path):
+    repo = tmp_path / "repo"
+    wiki = repo / "wiki"
+    (repo / "components").mkdir(parents=True)
+    (repo / "modules" / "auth").mkdir(parents=True)
+    wiki.mkdir()
+    for path in (
+        "App.jsx",
+        "components/Login.jsx",
+        "components/Register.jsx",
+        "modules/auth/auth.routes.js",
+        "modules/auth/auth.service.js",
+    ):
+        (repo / path).write_text("", encoding="utf-8")
+    (wiki / "accounts.md").write_text(
+        """# Accounts
+
+Sign in and registration.
+
+## Frontend
+
+`App.jsx` → `components/Login.jsx`, `components/Register.jsx`
+
+## Backend
+
+`modules/auth/auth.routes.js` → `auth.service.js`
+
+Uses [dashboard](dashboard.md).
+""",
+        encoding="utf-8",
+    )
+
+    architecture = parse_feature_wiki(str(repo), str(wiki))
+
+    assert len(architecture.features) == 1
+    feature = architecture.features[0]
+    assert feature.connected_feature_ids == ["dashboard"]
+    assert ("App.jsx", "components/Login.jsx") in feature.file_edges
+    assert ("App.jsx", "components/Register.jsx") in feature.file_edges
+    assert (
+        "modules/auth/auth.routes.js",
+        "modules/auth/auth.service.js",
+    ) in feature.file_edges
+    nodes, edges = build_wiki_graph(architecture)
+    assert len(nodes) == 5
+    assert len(edges) == 4
+    boundary = next(
+        edge
+        for edge in edges
+        if edge.source_id == "file:components/Register.jsx"
+        and edge.target_id == "file:modules/auth/auth.routes.js"
+    )
+    assert boundary.evidence_status == "inferred"
+
+
+def test_resolves_frontend_and_backend_section_paths(tmp_path):
+    repo = tmp_path / "repo"
+    wiki = repo / "wiki"
+    (repo / "frontend" / "src" / "components").mkdir(parents=True)
+    (repo / "backend" / "modules" / "auth").mkdir(parents=True)
+    wiki.mkdir()
+    for path in (
+        "frontend/src/App.jsx",
+        "frontend/src/components/Login.jsx",
+        "backend/server.js",
+        "backend/modules/auth/auth.routes.js",
+    ):
+        (repo / path).write_text("", encoding="utf-8")
+    (wiki / "accounts.md").write_text(
+        """# Accounts
+
+## Frontend
+
+`App.jsx` → `components/Login.jsx`
+
+## Backend
+
+`server.js` → `modules/auth/auth.routes.js`
+""",
+        encoding="utf-8",
+    )
+
+    architecture = parse_feature_wiki(str(repo), str(wiki))
+
+    feature = architecture.features[0]
+    assert feature.frontend_files == [
+        "frontend/src/App.jsx",
+        "frontend/src/components/Login.jsx",
+    ]
+    assert feature.backend_files == [
+        "backend/server.js",
+        "backend/modules/auth/auth.routes.js",
+    ]
+    assert architecture.warnings == []
+    assert feature.file_edges == [
+        ("frontend/src/App.jsx", "frontend/src/components/Login.jsx"),
+        ("backend/server.js", "backend/modules/auth/auth.routes.js"),
+    ]

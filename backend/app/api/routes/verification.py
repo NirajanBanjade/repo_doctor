@@ -68,6 +68,7 @@ async def get_verification_report(session_id: str) -> dict:
             "per_test": evidence["per_test"],
             "inferred_node_ids": evidence["inferred_node_ids"],
             "env_checks": evidence["env_checks"],
+            "feature_scope": evidence["feature_scope"],
         },
     )
 

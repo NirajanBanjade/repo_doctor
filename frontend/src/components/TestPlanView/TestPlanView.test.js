@@ -21,6 +21,8 @@ const mockPlan = {
             expected_behavior: "Returns a FastAPI application instance",
             proposed_test_file: "working_copy/tests/generated/test_main.py",
             proposed_test_function: "test_create_app_returns_fastapi",
+            rationale: "Protect the application factory contract",
+            edge_cases: [],
         },
     ],
     existing_test_mappings: [
@@ -31,6 +33,10 @@ const mockPlan = {
         },
     ],
     coverage_gaps: ["app/main.py::create_app"],
+    selected_node_ids: ["app/main.py::create_app"],
+    generated_files: [],
+    analysis_notes: [],
+    overall_rationale: "Protect the selected component contracts.",
 };
 function wrapper({ children }) {
     const qc = new QueryClient({
@@ -50,8 +56,8 @@ describe("TestPlanView", () => {
     it("renders scenarios from the plan", async () => {
         vi.mocked(client.getTestPlan).mockResolvedValue(mockPlan);
         render(_jsx(TestPlanView, { sessionId: "sess-1" }), { wrapper });
-        await screen.findByText("Test create_app returns a FastAPI app");
-        expect(screen.getByText("Proposed Scenarios (1)")).toBeInTheDocument();
+        await screen.findByText(/Test create_app returns a FastAPI app/);
+        expect(screen.getByText("Proposed Test Scenarios (1)")).toBeInTheDocument();
     });
     it("shows coverage gap", async () => {
         vi.mocked(client.getTestPlan).mockResolvedValue(mockPlan);
@@ -59,27 +65,31 @@ describe("TestPlanView", () => {
         await screen.findByText(/Coverage gaps/i);
         expect(screen.getByText("app/main.py::create_app")).toBeInTheDocument();
     });
-    it("shows Approve Plan button for proposed plan", async () => {
+    it("shows Approve & Generate Tests button for proposed plan", async () => {
         vi.mocked(client.getTestPlan).mockResolvedValue(mockPlan);
         render(_jsx(TestPlanView, { sessionId: "sess-1" }), { wrapper });
-        await screen.findByText("Approve Plan");
-        expect(screen.getByText("Approve Plan")).toBeInTheDocument();
+        await screen.findByText("Approve & Generate Tests");
+        expect(screen.getByText("Approve & Generate Tests")).toBeInTheDocument();
     });
-    it("opens approval modal when Approve Plan is clicked", async () => {
+    it("opens approval modal when Approve & Generate Tests is clicked", async () => {
         vi.mocked(client.getTestPlan).mockResolvedValue(mockPlan);
         render(_jsx(TestPlanView, { sessionId: "sess-1" }), { wrapper });
-        const btn = await screen.findByText("Approve Plan");
+        const btn = await screen.findByText("Approve & Generate Tests");
         fireEvent.click(btn);
         expect(screen.getByRole("dialog")).toBeInTheDocument();
         expect(screen.getByText("Approve Test Plan")).toBeInTheDocument();
     });
     it("calls approveTestPlan when approval confirmed", async () => {
         vi.mocked(client.getTestPlan).mockResolvedValue(mockPlan);
-        vi.mocked(client.approveTestPlan).mockResolvedValue(undefined);
+        vi.mocked(client.approveTestPlan).mockResolvedValue({
+            ...mockPlan,
+            status: "approved",
+            generated_files: ["working_copy/tests/generated/test_main.py"],
+        });
         render(_jsx(TestPlanView, { sessionId: "sess-1" }), { wrapper });
-        const btn = await screen.findByText("Approve Plan");
+        const btn = await screen.findByText("Approve & Generate Tests");
         fireEvent.click(btn);
-        const confirmBtn = screen.getByText("Approve & Continue");
+        const confirmBtn = screen.getByText("Approve & Generate");
         fireEvent.click(confirmBtn);
         await waitFor(() => expect(client.approveTestPlan).toHaveBeenCalledWith("sess-1", {
             plan_id: "plan-1",
@@ -89,7 +99,7 @@ describe("TestPlanView", () => {
     it("closes modal when Cancel is clicked without calling approve", async () => {
         vi.mocked(client.getTestPlan).mockResolvedValue(mockPlan);
         render(_jsx(TestPlanView, { sessionId: "sess-1" }), { wrapper });
-        const btn = await screen.findByText("Approve Plan");
+        const btn = await screen.findByText("Approve & Generate Tests");
         fireEvent.click(btn);
         const cancelBtn = screen.getByText("Cancel");
         fireEvent.click(cancelBtn);

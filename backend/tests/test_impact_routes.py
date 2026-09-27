@@ -325,3 +325,33 @@ async def test_seeded_regression_process_order_reachable_at_depth2(
         names = {n["node"]["name"] for n in result_nodes if n.get("node")}
         # process_order calls process_payment, so it must appear at depth≤2
         assert "process_order" in names or len(result_nodes) >= 1  # at minimum origin
+
+
+@pytest.mark.asyncio
+async def test_feature_impact_includes_edges_between_origin_files(tmp_path, app_client):
+    repo = tmp_path / "repo"
+    wiki = repo / "wiki"
+    (repo / "frontend" / "src").mkdir(parents=True)
+    wiki.mkdir()
+    (repo / "frontend" / "src" / "App.jsx").write_text("", encoding="utf-8")
+    (repo / "frontend" / "src" / "Page.jsx").write_text("", encoding="utf-8")
+    (wiki / "feature.md").write_text(
+        "# Feature\n\n## Frontend\n\n`App.jsx` → `Page.jsx`\n",
+        encoding="utf-8",
+    )
+    async with app_client as client:
+        created = await client.post(
+            "/api/v1/sessions",
+            json={"repo_path": str(repo), "architecture_path": str(wiki)},
+        )
+        session_id = created.json()["session_id"]
+        await client.post(f"/api/v1/sessions/{session_id}/xray")
+        impact = await client.post(
+            f"/api/v1/sessions/{session_id}/impact",
+            json={"feature_id": "feature", "depth": 1},
+        )
+
+    assert impact.status_code == 202
+    assert [
+        (edge["source_id"], edge["target_id"]) for edge in impact.json()["edges"]
+    ] == [("file:frontend/src/App.jsx", "file:frontend/src/Page.jsx")]

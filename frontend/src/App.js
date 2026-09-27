@@ -11,7 +11,6 @@ import ImpactGraphView from "@/components/ImpactGraphView";
 import TestPlanView from "@/components/TestPlanView";
 import TestResultsView from "@/components/TestResultsView";
 import VerificationView from "@/components/VerificationView";
-import FirstPRView from "@/components/FirstPRView";
 const TAB_LABELS = {
     xray: "Architecture X-Ray",
     environment: "Environment Doctor",
@@ -40,17 +39,23 @@ function Workspace({ sessionId }) {
                     background: "var(--surface)",
                     flexShrink: 0,
                     overflowX: "auto",
-                }, children: Object.keys(TAB_LABELS).map((tab) => (_jsx("button", { onClick: () => setActiveTab(tab), style: {
-                        padding: "10px 18px",
-                        border: "none",
-                        borderBottom: activeTab === tab ? "2px solid var(--accent)" : "2px solid transparent",
-                        background: "none",
-                        color: activeTab === tab ? "var(--accent)" : "var(--text)",
-                        fontWeight: activeTab === tab ? 600 : 400,
-                        fontSize: 13,
-                        whiteSpace: "nowrap",
-                        cursor: "pointer",
-                    }, children: TAB_LABELS[tab] }, tab))) }), _jsxs("main", { style: { flex: 1, overflowY: "auto", minHeight: 0 }, children: [activeTab === "xray" && _jsx(ArchitectureMapView, { sessionId: sessionId }), activeTab === "environment" && _jsx(EnvironmentDoctorView, { sessionId: sessionId }), activeTab === "firstpr" && (_jsx(FirstPRView, { sessionId: sessionId, onTaskSelected: () => setActiveTab("impact") })), activeTab === "impact" && _jsx(ImpactGraphView, { sessionId: sessionId }), activeTab === "tests" && (_jsx(TestPlanView, { sessionId: sessionId, onApproved: () => setActiveTab("results") })), activeTab === "results" && _jsx(TestResultsView, { sessionId: sessionId }), activeTab === "verify" && _jsx(VerificationView, { sessionId: sessionId })] })] }));
+                }, children: Object.keys(TAB_LABELS)
+                    .filter((tab) => tab !== "firstpr")
+                    .map((tab) => {
+                    return (_jsx("button", { onClick: () => setActiveTab(tab), style: {
+                            padding: "10px 18px",
+                            border: "none",
+                            borderBottom: activeTab === tab
+                                ? "2px solid var(--accent)"
+                                : "2px solid transparent",
+                            background: "none",
+                            color: activeTab === tab ? "var(--accent)" : "var(--text)",
+                            fontWeight: activeTab === tab ? 600 : 400,
+                            fontSize: 13,
+                            whiteSpace: "nowrap",
+                            cursor: "pointer",
+                        }, children: TAB_LABELS[tab] }, tab));
+                }) }), _jsxs("main", { style: { flex: 1, overflowY: "auto", minHeight: 0 }, children: [activeTab === "xray" && _jsx(ArchitectureMapView, { sessionId: sessionId }), activeTab === "environment" && _jsx(EnvironmentDoctorView, { sessionId: sessionId }), activeTab === "impact" && (_jsx(ImpactGraphView, { sessionId: sessionId, onPlanCreated: () => setActiveTab("tests") })), activeTab === "tests" && (_jsx(TestPlanView, { sessionId: sessionId, onRan: () => setActiveTab("results") })), activeTab === "results" && _jsx(TestResultsView, { sessionId: sessionId }), activeTab === "verify" && _jsx(VerificationView, { sessionId: sessionId })] })] }));
 }
 export default function App() {
     const { session } = useSessionContext();

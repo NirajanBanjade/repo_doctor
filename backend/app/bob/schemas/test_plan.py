@@ -17,6 +17,8 @@ class TestScenario(BaseModel):
     expected_behavior: str
     proposed_test_file: str  # relative path in working_copy
     proposed_test_function: str
+    rationale: str = ""  # why this scenario matters
+    edge_cases: list[str] = []  # specific edge cases Bob identified
 
     @field_validator("component_id")
     @classmethod
@@ -29,3 +31,4 @@ class TestScenario(BaseModel):
 class TestPlanProposal(BaseModel):
     scenarios: list[TestScenario]
     analysis_notes: list[str] = []
+    overall_rationale: str = ""  # Bob's high-level reasoning for the whole plan

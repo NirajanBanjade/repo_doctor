@@ -9,9 +9,10 @@ import ReactFlow, {
 } from "reactflow";
 import "reactflow/dist/style.css";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { triggerImpact, getImpactGraph } from "@/api/client";
+import { createTestPlan, triggerImpact, getImpactGraph } from "@/api/client";
 import EvidencePanel from "@/components/EvidencePanel";
 import Spinner from "@/components/Spinner";
+import { useXRayGraph } from "@/hooks/useSession";
 import type { ImpactNode, ImpactRunResult, EvidenceRef } from "@/types";
 
 const DEPTH_COLOR = ["#3b82d4", "#7c5cd8", "#16a34a", "#d97706"];
@@ -26,11 +27,22 @@ function buildFlow(result: ImpactRunResult): { rfNodes: Node[]; rfEdges: Edge[] 
       position: { x: (i % COL) * 240, y: Math.floor(i / COL) * 130 },
       data: {
         label: (
-          <div style={{ fontSize: 11, lineHeight: 1.4 }}>
+          <div
+            style={{
+              width: "100%",
+              minWidth: 0,
+              fontSize: 11,
+              lineHeight: 1.4,
+              whiteSpace: "normal",
+              overflowWrap: "anywhere",
+            }}
+          >
             <div style={{ fontWeight: 600, color }}>{in_.node.name}</div>
             <div style={{ color: "#57606a" }}>{in_.node.path}</div>
             <div style={{ color: "#57606a", fontSize: 10 }}>
-              depth {in_.depth_level}
+              {result.primary_feature && isOrigin
+                ? "primary feature scope"
+                : `impact depth ${in_.depth_level}`}
             </div>
           </div>
         ),
@@ -40,6 +52,9 @@ function buildFlow(result: ImpactRunResult): { rfNodes: Node[]; rfEdges: Edge[] 
         border: `2px solid ${color}`,
         borderRadius: 6,
         padding: "8px 10px",
+        width: 220,
+        boxSizing: "border-box",
+        overflow: "hidden",
       },
     };
   });
@@ -66,15 +81,19 @@ function buildFlow(result: ImpactRunResult): { rfNodes: Node[]; rfEdges: Edge[] 
 
 interface Props {
   sessionId: string;
+  onPlanCreated?: () => void;
 }
 
-export default function ImpactGraphView({ sessionId }: Props) {
+export default function ImpactGraphView({ sessionId, onPlanCreated }: Props) {
   const qc = useQueryClient();
   const [symbolId, setSymbolId] = useState("");
   const [gitDiff, setGitDiff] = useState("");
   const [depth, setDepth] = useState<1 | 2 | 3>(2);
-  const [mode, setMode] = useState<"symbol" | "diff">("symbol");
+  const [featureId, setFeatureId] = useState("");
+  const [mode, setMode] = useState<"feature" | "symbol" | "diff">("feature");
   const [selectedNode, setSelectedNode] = useState<ImpactNode | null>(null);
+  const [selectedNodeIds, setSelectedNodeIds] = useState<Set<string>>(new Set());
+  const { data: xray } = useXRayGraph(sessionId);
 
   const { data: impactResult, isPending: isFetching } = useQuery({
     queryKey: ["impact", sessionId],
@@ -86,11 +105,28 @@ export default function ImpactGraphView({ sessionId }: Props) {
   const { mutate: trigger, isPending: isTriggering } = useMutation({
     mutationFn: () =>
       triggerImpact(sessionId, {
-        ...(mode === "symbol" ? { symbol_id: symbolId } : { git_diff: gitDiff }),
+        ...(mode === "feature"
+          ? { feature_id: featureId }
+          : mode === "symbol"
+            ? { symbol_id: symbolId }
+            : { git_diff: gitDiff }),
         depth,
       }),
-    onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: ["impact", sessionId] });
+    onSuccess: (result) => {
+      qc.setQueryData(["impact", sessionId], result);
+      setSelectedNodeIds(new Set(result.nodes.map((node) => node.node_id)));
+      void qc.invalidateQueries({ queryKey: ["session", sessionId] });
+    },
+  });
+  const { mutate: makePlan, isPending: isPlanning } = useMutation({
+    mutationFn: () =>
+      createTestPlan(sessionId, {
+        impact_run_id: impactResult!.run_id,
+        selected_node_ids: [...selectedNodeIds],
+      }),
+    onSuccess: (plan) => {
+      qc.setQueryData(["testplan", sessionId], plan);
+      onPlanCreated?.();
     },
   });
 
@@ -137,26 +173,60 @@ export default function ImpactGraphView({ sessionId }: Props) {
         }}
       >
         <div>
-          <label style={{ fontSize: 12, fontWeight: 600, display: "block", marginBottom: 4 }}>
+          <label
+            style={{ fontSize: 12, fontWeight: 600, display: "block", marginBottom: 4 }}
+          >
             Mode
           </label>
           <div style={{ display: "flex", gap: 6 }}>
-            {(["symbol", "diff"] as const).map((m) => (
+            {(["feature", "symbol", "diff"] as const).map((m) => (
               <button
                 key={m}
                 className={`btn ${mode === m ? "btn-primary" : "btn-secondary"}`}
                 style={{ padding: "5px 12px", fontSize: 12 }}
                 onClick={() => setMode(m)}
               >
-                {m === "symbol" ? "Symbol" : "Git Diff"}
+                {m === "feature" ? "Feature" : m === "symbol" ? "File ID" : "Git Diff"}
               </button>
             ))}
           </div>
         </div>
 
-        {mode === "symbol" ? (
+        {mode === "feature" ? (
+          <div style={{ flex: 1, minWidth: 220 }}>
+            <label
+              style={{
+                fontSize: 12,
+                fontWeight: 600,
+                display: "block",
+                marginBottom: 4,
+              }}
+            >
+              Primary feature
+            </label>
+            <select
+              value={featureId}
+              onChange={(e) => setFeatureId(e.target.value)}
+              style={{ marginBottom: 0 }}
+            >
+              <option value="">Select a feature…</option>
+              {(xray?.features ?? []).map((feature) => (
+                <option key={feature.feature_id} value={feature.feature_id}>
+                  {feature.name}
+                </option>
+              ))}
+            </select>
+          </div>
+        ) : mode === "symbol" ? (
           <div style={{ flex: 1, minWidth: 200 }}>
-            <label style={{ fontSize: 12, fontWeight: 600, display: "block", marginBottom: 4 }}>
+            <label
+              style={{
+                fontSize: 12,
+                fontWeight: 600,
+                display: "block",
+                marginBottom: 4,
+              }}
+            >
               Symbol ID
             </label>
             <input
@@ -169,7 +239,14 @@ export default function ImpactGraphView({ sessionId }: Props) {
           </div>
         ) : (
           <div style={{ flex: 1, minWidth: 200 }}>
-            <label style={{ fontSize: 12, fontWeight: 600, display: "block", marginBottom: 4 }}>
+            <label
+              style={{
+                fontSize: 12,
+                fontWeight: 600,
+                display: "block",
+                marginBottom: 4,
+              }}
+            >
               Git Diff
             </label>
             <textarea
@@ -183,7 +260,9 @@ export default function ImpactGraphView({ sessionId }: Props) {
         )}
 
         <div>
-          <label style={{ fontSize: 12, fontWeight: 600, display: "block", marginBottom: 4 }}>
+          <label
+            style={{ fontSize: 12, fontWeight: 600, display: "block", marginBottom: 4 }}
+          >
             Depth
           </label>
           <div style={{ display: "flex", gap: 6 }}>
@@ -205,10 +284,20 @@ export default function ImpactGraphView({ sessionId }: Props) {
           onClick={() => trigger()}
           disabled={
             isTriggering ||
-            (mode === "symbol" ? !symbolId.trim() : !gitDiff.trim())
+            (mode === "feature"
+              ? !featureId
+              : mode === "symbol"
+                ? !symbolId.trim()
+                : !gitDiff.trim())
           }
         >
-          {isTriggering ? <><Spinner size={13} /> Analysing…</> : "Analyse Impact"}
+          {isTriggering ? (
+            <>
+              <Spinner size={13} /> Analysing…
+            </>
+          ) : (
+            "Analyse Impact"
+          )}
         </button>
       </div>
 
@@ -222,6 +311,88 @@ export default function ImpactGraphView({ sessionId }: Props) {
       {impactResult && !isFetching && (
         <div style={{ display: "flex", height: "calc(100% - 80px)", minHeight: 520 }}>
           <div style={{ flex: 1 }}>
+            <div
+              style={{
+                padding: "10px 12px",
+                borderBottom: "1px solid var(--border)",
+              }}
+            >
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  gap: 12,
+                  marginBottom: 8,
+                }}
+              >
+                <div>
+                  <strong style={{ fontSize: 13 }}>Test plan scope</strong>
+                  <span className="text-muted" style={{ marginLeft: 8, fontSize: 12 }}>
+                    {selectedNodeIds.size} of {impactResult.nodes.length} impacted files
+                  </span>
+                </div>
+                <div style={{ display: "flex", gap: 6 }}>
+                  <button
+                    className="btn btn-secondary"
+                    style={{ padding: "3px 8px", fontSize: 11 }}
+                    onClick={() =>
+                      setSelectedNodeIds(
+                        new Set(impactResult.nodes.map((node) => node.node_id)),
+                      )
+                    }
+                  >
+                    Select all
+                  </button>
+                  <button
+                    className="btn btn-secondary"
+                    style={{ padding: "3px 8px", fontSize: 11 }}
+                    onClick={() => setSelectedNodeIds(new Set())}
+                  >
+                    Clear
+                  </button>
+                </div>
+              </div>
+              <div
+                style={{
+                  display: "flex",
+                  flexWrap: "wrap",
+                  gap: 6,
+                  marginBottom: 10,
+                }}
+              >
+                {impactResult.nodes.map((impactNode) => {
+                  const included = selectedNodeIds.has(impactNode.node_id);
+                  return (
+                    <button
+                      key={impactNode.node_id}
+                      className={`btn ${included ? "btn-primary" : "btn-secondary"}`}
+                      style={{ padding: "3px 8px", fontSize: 11 }}
+                      title={impactNode.node.path}
+                      onClick={() =>
+                        setSelectedNodeIds((current) => {
+                          const next = new Set(current);
+                          if (included) next.delete(impactNode.node_id);
+                          else next.add(impactNode.node_id);
+                          return next;
+                        })
+                      }
+                    >
+                      {impactNode.node.name}
+                    </button>
+                  );
+                })}
+              </div>
+              <button
+                className="btn btn-primary"
+                disabled={isPlanning || selectedNodeIds.size === 0}
+                onClick={() => makePlan()}
+              >
+                {isPlanning
+                  ? "Creating test plan…"
+                  : `Create Test Plan for ${selectedNodeIds.size} File${selectedNodeIds.size === 1 ? "" : "s"}`}
+              </button>
+            </div>
             {impactResult.warnings.length > 0 && (
               <div
                 style={{
@@ -248,10 +419,33 @@ export default function ImpactGraphView({ sessionId }: Props) {
               <Controls />
               <MiniMap />
             </ReactFlow>
+            {(impactResult.external_feature_suggestions?.length ?? 0) > 0 && (
+              <div
+                style={{
+                  margin: 8,
+                  padding: 10,
+                  border: "1px solid var(--border)",
+                  borderRadius: 6,
+                  fontSize: 12,
+                }}
+              >
+                <strong>Suggested cross-feature regression scopes:</strong>{" "}
+                {impactResult
+                  .external_feature_suggestions!.map((feature) => feature.name)
+                  .join(", ")}
+              </div>
+            )}
           </div>
 
           {selectedNode && (
-            <div style={{ width: 300, borderLeft: "1px solid var(--border)", padding: 12, overflowY: "auto" }}>
+            <div
+              style={{
+                width: 300,
+                borderLeft: "1px solid var(--border)",
+                padding: 12,
+                overflowY: "auto",
+              }}
+            >
               <h3 style={{ marginBottom: 4 }}>{selectedNode.node.name}</h3>
               <p className="mono text-muted" style={{ marginBottom: 8 }}>
                 {selectedNode.node.path}
@@ -265,7 +459,11 @@ export default function ImpactGraphView({ sessionId }: Props) {
                     Existing tests
                   </p>
                   {selectedNode.existing_tests.map((t) => (
-                    <p key={t} className="mono" style={{ fontSize: 11, color: "var(--accent)" }}>
+                    <p
+                      key={t}
+                      className="mono"
+                      style={{ fontSize: 11, color: "var(--accent)" }}
+                    >
                       {t}
                     </p>
                   ))}

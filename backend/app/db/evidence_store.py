@@ -35,7 +35,27 @@ def get_engine(db_url: str = "sqlite:///./repodoc.db") -> sa.Engine:
     if _engine is None:
         _engine = sa.create_engine(db_url, connect_args={"check_same_thread": False})
         metadata.create_all(_engine)
+        _upgrade_legacy_schema(_engine)
     return _engine
+
+
+def _upgrade_legacy_schema(engine: sa.Engine) -> None:
+    """Add non-destructive columns introduced before Alembic was configured."""
+    if engine.dialect.name != "sqlite":
+        return
+    columns = {
+        column["name"] for column in sa.inspect(engine).get_columns("test_plans")
+    }
+    additions = {
+        "analysis_notes": "JSON NOT NULL DEFAULT '[]'",
+        "overall_rationale": "VARCHAR NOT NULL DEFAULT ''",
+    }
+    with engine.begin() as conn:
+        for name, definition in additions.items():
+            if name not in columns:
+                conn.exec_driver_sql(
+                    f"ALTER TABLE test_plans ADD COLUMN {name} {definition}"
+                )
 
 
 def init_db(db_url: str = "sqlite:///./repodoc.db") -> None:
@@ -46,7 +66,11 @@ def init_db(db_url: str = "sqlite:///./repodoc.db") -> None:
 # ── Sessions ──────────────────────────────────────────────────────────────────
 
 
-def create_session(repo_path: str, db_url: str = "sqlite:///./repodoc.db") -> dict:
+def create_session(
+    repo_path: str,
+    architecture_path: str | None = None,
+    db_url: str = "sqlite:///./repodoc.db",
+) -> dict:
     engine = get_engine(db_url)
     now = datetime.now(timezone.utc)
     sid = str(uuid.uuid4())
@@ -56,12 +80,17 @@ def create_session(repo_path: str, db_url: str = "sqlite:///./repodoc.db") -> di
                 id=sid,
                 repo_path=repo_path,
                 status="created",
-                stack=None,
+                stack=(
+                    {"architecture_path": architecture_path}
+                    if architecture_path
+                    else None
+                ),
                 created_at=now,
                 updated_at=now,
             )
         )
-    return _row_to_session(sid, repo_path, "created", None, now, now)
+    stack = {"architecture_path": architecture_path} if architecture_path else None
+    return _row_to_session(sid, repo_path, "created", stack, now, now)
 
 
 def get_session(session_id: str, db_url: str = "sqlite:///./repodoc.db") -> dict | None:
@@ -308,6 +337,8 @@ def save_test_plan(
     session_id: str,
     impact_run_id: str,
     scenarios: list[dict],
+    analysis_notes: list[str] | None = None,
+    overall_rationale: str = "",
     db_url: str = "sqlite:///./repodoc.db",
 ) -> None:
     engine = get_engine(db_url)
@@ -318,8 +349,30 @@ def save_test_plan(
                 session_id=session_id,
                 impact_run_id=impact_run_id,
                 scenarios=scenarios,
-                status="pending",
+                analysis_notes=analysis_notes or [],
+                overall_rationale=overall_rationale,
+                status="proposed",
                 created_at=datetime.now(timezone.utc),
+            )
+        )
+
+
+def update_test_plan_scenarios(
+    plan_id: str,
+    scenarios: list[dict],
+    analysis_notes: list[str],
+    overall_rationale: str,
+    db_url: str = "sqlite:///./repodoc.db",
+) -> None:
+    engine = get_engine(db_url)
+    with engine.begin() as conn:
+        conn.execute(
+            test_plans.update()
+            .where(test_plans.c.plan_id == plan_id)
+            .values(
+                scenarios=scenarios,
+                analysis_notes=analysis_notes,
+                overall_rationale=overall_rationale,
             )
         )
 

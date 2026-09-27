@@ -66,6 +66,7 @@ export interface Session {
   session_id: string;
   status: SessionStatus;
   repo_path: string;
+  architecture_path?: string;
   stack: StackDetection | null;
   created_at: string;
   updated_at: string;
@@ -73,6 +74,19 @@ export interface Session {
 
 export interface CreateSessionRequest {
   repo_path: string;
+  architecture_path: string;
+}
+
+export interface FeatureArchitecture {
+  feature_id: string;
+  name: string;
+  description: string;
+  document: string;
+  frontend_files: string[];
+  backend_files: string[];
+  files: string[];
+  file_edges: Array<{ source: string; target: string }>;
+  connected_feature_ids: string[];
 }
 
 // X-Ray types
@@ -80,6 +94,7 @@ export interface XRayResult {
   session_id: string;
   nodes: GraphNode[];
   edges: GraphEdge[];
+  features: FeatureArchitecture[];
   architecture_findings: ArchitectureFindings | null;
   documentation_findings: DocumentationFindings | null;
   warnings: string[];
@@ -148,6 +163,8 @@ export interface ApplyFixRequest {
 // ImpactScope types
 export interface ImpactRequest {
   symbol_id?: string;
+  feature_id?: string;
+  file_path?: string;
   git_diff?: string;
   change_description?: string;
   depth: 1 | 2 | 3;
@@ -178,6 +195,12 @@ export interface ImpactRunResult {
   annotations: ImpactAnnotation[];
   unresolved_symbols: string[];
   warnings: string[];
+  primary_feature?: { feature_id: string; name: string } | null;
+  external_feature_suggestions?: Array<{
+    feature_id: string;
+    name: string;
+    reason: string;
+  }>;
 }
 
 // Test types
@@ -189,6 +212,10 @@ export interface TestScenario {
   expected_behavior: string;
   proposed_test_file: string;
   proposed_test_function: string;
+  rationale: string;
+  edge_cases: string[];
+  generation_status?: "generated" | "failed";
+  generated_test_file?: string;
 }
 
 export interface ExistingTestMapping {
@@ -203,8 +230,17 @@ export interface TestPlanProposal {
   impact_run_id: string;
   status: "proposed" | "approved" | "rejected";
   scenarios: TestScenario[];
+  analysis_notes: string[];
+  overall_rationale: string;
   existing_test_mappings: ExistingTestMapping[];
   coverage_gaps: string[];
+  selected_node_ids: string[];
+  generated_files: string[];
+  external_feature_suggestions?: Array<{
+    feature_id: string;
+    name: string;
+    reason: string;
+  }>;
 }
 
 export interface ApprovePlanRequest {

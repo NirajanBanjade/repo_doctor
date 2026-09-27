@@ -18,6 +18,11 @@ from app.bob.integration import run_xray_agents
 from app.db import evidence_store
 from app.services import repo_importer
 from app.services import session as session_svc
+from app.services.feature_wiki import (
+    build_wiki_graph,
+    parse_feature_wiki,
+    serialize_architecture,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -50,16 +55,29 @@ async def run_xray(session_id: str) -> dict:
         stack = repo_importer.detect_stack(repo_path)
         warnings: list[str] = []
 
-        # 2. Adapter dispatch
-        adapter = get_adapter(stack["language"])
-        if adapter is None:
-            warnings.append(
-                f"no_adapter: no adapter available for language '{stack['language']}'"
-            )
-            nodes, edges = [], []
+        architecture_path = (s.get("stack") or {}).get("architecture_path")
+
+        # 2. The supplied wiki is authoritative. Legacy sessions still use adapters.
+        if architecture_path:
+            architecture = parse_feature_wiki(repo_path, architecture_path)
+            nodes, edges = build_wiki_graph(architecture)
+            warnings.extend(architecture.warnings)
         else:
-            nodes = adapter.extract_nodes(repo_path)
-            edges = adapter.extract_edges(repo_path)
+            architecture = None
+            adapter = get_adapter(stack["language"])
+            if adapter is None:
+                warnings.append(
+                    f"no_adapter: no adapter available for language '{stack['language']}'"
+                )
+                nodes, edges = [], []
+            else:
+                nodes = adapter.extract_nodes(repo_path)
+                edges = adapter.extract_edges(repo_path)
+
+        if architecture is None and not nodes:
+            warnings.append(
+                "architecture_wiki_missing: supply a feature wiki for feature-level X-Ray"
+            )
 
         # 3. Build + persist graph
         build_graph(session_id, nodes, edges)
@@ -84,6 +102,8 @@ async def run_xray(session_id: str) -> dict:
         await run_xray_agents(session_id, node_dicts, stack, readme_excerpt, doc_files)
 
         # 5. Update session status
+        if architecture_path:
+            stack["architecture_path"] = architecture_path
         session_svc.update_status(session_id, "xray_complete", stack=stack)
 
         return {
@@ -118,10 +138,21 @@ async def get_xray_graph(session_id: str) -> dict:
     if not nodes:
         warnings.append("no_nodes: graph is empty — X-Ray may not have run yet")
 
+    xray_has_run = s["status"] != "created"
+    architecture_path = (s.get("stack") or {}).get("architecture_path")
+    architecture = (
+        parse_feature_wiki(s["repo_path"], architecture_path)
+        if architecture_path and xray_has_run
+        else None
+    )
+    if architecture:
+        warnings.extend(architecture.warnings)
+
     return {
         "session_id": session_id,
         "nodes": nodes,
         "edges": edges,
+        "features": serialize_architecture(architecture) if architecture else [],
         "architecture_findings": None,  # populated by Bob when available
         "documentation_findings": None,
         "warnings": warnings,

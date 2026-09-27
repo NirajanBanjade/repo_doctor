@@ -13,9 +13,10 @@ const COMP_STATUS_COLOR = {
 export default function VerificationView({ sessionId }) {
     const [selectedComp, setSelectedComp] = useState(null);
     const [showPrSummary, setShowPrSummary] = useState(false);
-    const { data: report, isPending, error } = useQuery({
+    const { data: report, isPending, error, } = useQuery({
         queryKey: ["verification", sessionId],
         queryFn: () => getVerificationReport(sessionId),
+        retry: false,
     });
     if (isPending) {
         return (_jsxs("div", { style: { display: "flex", gap: 10, alignItems: "center", padding: 32 }, children: [_jsx(Spinner, {}), " Loading verification report\u2026"] }));
@@ -35,14 +36,24 @@ export default function VerificationView({ sessionId }) {
                                     display: "flex",
                                     flexDirection: "column",
                                     gap: 5,
-                                }, children: report.components_verified.map((cv) => (_jsxs("button", { className: `btn ${selectedComp === cv.component_id ? "btn-primary" : "btn-secondary"}`, style: { justifyContent: "flex-start", fontSize: 11, padding: "5px 10px", gap: 8 }, onClick: () => setSelectedComp(selectedComp === cv.component_id ? null : cv.component_id), children: [_jsx("span", { style: {
+                                }, children: report.components_verified.map((cv) => (_jsxs("button", { className: `btn ${selectedComp === cv.component_id ? "btn-primary" : "btn-secondary"}`, style: {
+                                        justifyContent: "flex-start",
+                                        fontSize: 11,
+                                        padding: "5px 10px",
+                                        gap: 8,
+                                    }, onClick: () => setSelectedComp(selectedComp === cv.component_id ? null : cv.component_id), children: [_jsx("span", { style: {
                                                 width: 8,
                                                 height: 8,
                                                 borderRadius: "50%",
                                                 background: COMP_STATUS_COLOR[cv.status],
                                                 flexShrink: 0,
                                                 display: "inline-block",
-                                            } }), _jsx("span", { className: "mono", style: { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }, children: cv.component_id.split("::").pop() }), _jsx("span", { style: {
+                                            } }), _jsx("span", { className: "mono", style: {
+                                                overflow: "hidden",
+                                                textOverflow: "ellipsis",
+                                                whiteSpace: "nowrap",
+                                                flex: 1,
+                                            }, children: cv.component_id.split("::").pop() }), _jsx("span", { style: {
                                                 fontSize: 10,
                                                 color: COMP_STATUS_COLOR[cv.status],
                                                 fontWeight: 600,

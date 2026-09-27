@@ -20,9 +20,14 @@ export default function VerificationView({ sessionId }: Props) {
   const [selectedComp, setSelectedComp] = useState<string | null>(null);
   const [showPrSummary, setShowPrSummary] = useState(false);
 
-  const { data: report, isPending, error } = useQuery({
+  const {
+    data: report,
+    isPending,
+    error,
+  } = useQuery({
     queryKey: ["verification", sessionId],
     queryFn: () => getVerificationReport(sessionId),
+    retry: false,
   });
 
   if (isPending) {
@@ -56,10 +61,7 @@ export default function VerificationView({ sessionId }: Props) {
         }}
       >
         <h2>Verification Report</h2>
-        <button
-          className="btn btn-primary"
-          onClick={() => setShowPrSummary(true)}
-        >
+        <button className="btn btn-primary" onClick={() => setShowPrSummary(true)}>
           View PR Summary
         </button>
       </div>
@@ -80,7 +82,12 @@ export default function VerificationView({ sessionId }: Props) {
               <button
                 key={cv.component_id}
                 className={`btn ${selectedComp === cv.component_id ? "btn-primary" : "btn-secondary"}`}
-                style={{ justifyContent: "flex-start", fontSize: 11, padding: "5px 10px", gap: 8 }}
+                style={{
+                  justifyContent: "flex-start",
+                  fontSize: 11,
+                  padding: "5px 10px",
+                  gap: 8,
+                }}
                 onClick={() =>
                   setSelectedComp(
                     selectedComp === cv.component_id ? null : cv.component_id,
@@ -99,7 +106,12 @@ export default function VerificationView({ sessionId }: Props) {
                 />
                 <span
                   className="mono"
-                  style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}
+                  style={{
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    whiteSpace: "nowrap",
+                    flex: 1,
+                  }}
                 >
                   {cv.component_id.split("::").pop()}
                 </span>
@@ -117,10 +129,7 @@ export default function VerificationView({ sessionId }: Props) {
           </div>
 
           {selectedComp && (
-            <EvidencePanel
-              refs={selectedEv}
-              onClose={() => setSelectedComp(null)}
-            />
+            <EvidencePanel refs={selectedEv} onClose={() => setSelectedComp(null)} />
           )}
         </div>
       </section>
@@ -143,9 +152,7 @@ export default function VerificationView({ sessionId }: Props) {
                   fontSize: 13,
                 }}
               >
-                <p style={{ fontWeight: 600, marginBottom: 4 }}>
-                  ⚠ {risk.hypothesis}
-                </p>
+                <p style={{ fontWeight: 600, marginBottom: 4 }}>⚠ {risk.hypothesis}</p>
                 <p className="text-muted" style={{ fontSize: 12 }}>
                   Component: <span className="mono">{risk.component_id}</span>
                 </p>

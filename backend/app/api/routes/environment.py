@@ -58,7 +58,7 @@ async def run_environment(session_id: str) -> dict:
         )
 
     readme_content = _read_readme(repo_path)
-    plan = build_setup_plan(readme_content)
+    plan = build_setup_plan(readme_content, repo_path)
 
     if not plan.steps:
         return {
@@ -139,7 +139,7 @@ async def apply_fix(session_id: str, body: FixRequest) -> dict:
 
     # Re-run the full setup sequence
     readme_content = _read_readme(repo_path)
-    plan = build_setup_plan(readme_content)
+    plan = build_setup_plan(readme_content, repo_path)
 
     existing = evidence_store.get_environment_checks(session_id)
     run_number = max((r["run_number"] for r in existing), default=0) + 1

@@ -208,7 +208,8 @@ def test_generate_test_files_approved_writes_files(tmp_path):
     assert Path(written[0]).exists()
     content = Path(written[0]).read_text()
     assert "test_process_payment" in content
-    assert "NotImplementedError" in content
+    assert "ast.parse" in content
+    assert "NotImplementedError" not in content
 
 
 # ── build_component_statuses logic ────────────────────────────────────────────
@@ -334,7 +335,7 @@ async def test_create_test_plan_returns_202(payment_repo, app_client):
         assert r.status_code == 202
         body = r.json()
         assert "plan_id" in body
-        assert body["status"] == "pending"
+        assert body["status"] == "proposed"
         assert "scenarios" in body
         assert "existing_test_mappings" in body
 

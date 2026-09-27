@@ -19,6 +19,7 @@ router = APIRouter()
 
 class CreateSessionRequest(BaseModel):
     repo_path: str
+    architecture_path: str | None = None
 
 
 @router.post("", status_code=201)
@@ -35,7 +36,34 @@ async def create_session(body: CreateSessionRequest) -> dict:
             status_code=422, detail="Repository path is not a directory"
         )
 
-    return session_svc.create_session(str(repo_path))
+    architecture_path: Path | None = None
+    if body.architecture_path:
+        supplied = Path(body.architecture_path).expanduser()
+        architecture_path = supplied if supplied.is_absolute() else repo_path / supplied
+        try:
+            architecture_path = architecture_path.resolve(strict=True)
+        except (OSError, RuntimeError) as exc:
+            raise HTTPException(
+                status_code=422, detail="Architecture wiki directory does not exist"
+            ) from exc
+        if not architecture_path.is_dir():
+            raise HTTPException(
+                status_code=422, detail="Architecture wiki path is not a directory"
+            )
+        feature_pages = [
+            page
+            for page in architecture_path.glob("*.md")
+            if page.name.lower() != "readme.md"
+        ]
+        if not feature_pages:
+            raise HTTPException(
+                status_code=422,
+                detail="Architecture wiki contains no feature Markdown files",
+            )
+
+    return session_svc.create_session(
+        str(repo_path), str(architecture_path) if architecture_path else None
+    )
 
 
 @router.get("/{session_id}")

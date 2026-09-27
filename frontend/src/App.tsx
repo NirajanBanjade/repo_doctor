@@ -10,7 +10,6 @@ import ImpactGraphView from "@/components/ImpactGraphView";
 import TestPlanView from "@/components/TestPlanView";
 import TestResultsView from "@/components/TestResultsView";
 import VerificationView from "@/components/VerificationView";
-import FirstPRView from "@/components/FirstPRView";
 
 type Tab =
   "xray" | "environment" | "firstpr" | "impact" | "tests" | "results" | "verify";
@@ -83,43 +82,48 @@ function Workspace({ sessionId }: WorkspaceProps) {
           overflowX: "auto",
         }}
       >
-        {(Object.keys(TAB_LABELS) as Tab[]).map((tab) => (
-          <button
-            key={tab}
-            onClick={() => setActiveTab(tab)}
-            style={{
-              padding: "10px 18px",
-              border: "none",
-              borderBottom:
-                activeTab === tab ? "2px solid var(--accent)" : "2px solid transparent",
-              background: "none",
-              color: activeTab === tab ? "var(--accent)" : "var(--text)",
-              fontWeight: activeTab === tab ? 600 : 400,
-              fontSize: 13,
-              whiteSpace: "nowrap",
-              cursor: "pointer",
-            }}
-          >
-            {TAB_LABELS[tab]}
-          </button>
-        ))}
+        {(Object.keys(TAB_LABELS) as Tab[])
+          .filter((tab) => tab !== "firstpr")
+          .map((tab) => {
+            return (
+              <button
+                key={tab}
+                onClick={() => setActiveTab(tab)}
+                style={{
+                  padding: "10px 18px",
+                  border: "none",
+                  borderBottom:
+                    activeTab === tab
+                      ? "2px solid var(--accent)"
+                      : "2px solid transparent",
+                  background: "none",
+                  color: activeTab === tab ? "var(--accent)" : "var(--text)",
+                  fontWeight: activeTab === tab ? 600 : 400,
+                  fontSize: 13,
+                  whiteSpace: "nowrap",
+                  cursor: "pointer",
+                }}
+              >
+                {TAB_LABELS[tab]}
+              </button>
+            );
+          })}
       </nav>
 
       {/* Content */}
       <main style={{ flex: 1, overflowY: "auto", minHeight: 0 }}>
         {activeTab === "xray" && <ArchitectureMapView sessionId={sessionId} />}
         {activeTab === "environment" && <EnvironmentDoctorView sessionId={sessionId} />}
-        {activeTab === "firstpr" && (
-          <FirstPRView
+        {activeTab === "impact" && (
+          <ImpactGraphView
             sessionId={sessionId}
-            onTaskSelected={() => setActiveTab("impact")}
+            onPlanCreated={() => setActiveTab("tests")}
           />
         )}
-        {activeTab === "impact" && <ImpactGraphView sessionId={sessionId} />}
         {activeTab === "tests" && (
           <TestPlanView
             sessionId={sessionId}
-            onApproved={() => setActiveTab("results")}
+            onRan={() => setActiveTab("results")}
           />
         )}
         {activeTab === "results" && <TestResultsView sessionId={sessionId} />}

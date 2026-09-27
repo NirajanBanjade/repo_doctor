@@ -9,6 +9,7 @@ GET  /api/v1/sessions/{session_id}/tests/plan/{plan_id}/result — get latest Te
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 import uuid
@@ -20,7 +21,9 @@ from app.bob.integration import run_test_agent
 from app.db import evidence_store
 from app.sandbox.test_executor import build_component_statuses, run_tests
 from app.services import session as session_svc
-from app.services.test_generator import ApprovalRequiredError, generate_test_files
+from app.services.deterministic_test_planner import build_deterministic_scenarios
+from app.services.feature_wiki import parse_feature_wiki
+from app.services.test_generator import generate_test_files, generated_test_filename
 from app.services.test_mapper import map_tests_to_nodes
 
 logger = logging.getLogger(__name__)
@@ -46,7 +49,62 @@ class ApprovalRequest(BaseModel):
     approved: bool
 
 
+class RefineRequest(BaseModel):
+    feedback: str
+
+
 # ── Routes ─────────────────────────────────────────────────────────────────────
+
+
+@router.get("/{session_id}/tests/plan")
+async def get_latest_test_plan(session_id: str) -> dict:
+    """Return the plan for the session's latest impact run."""
+    s = session_svc.get_session(session_id)
+    if s is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+    impact_run = evidence_store.get_latest_impact_run(session_id)
+    if impact_run is None:
+        raise HTTPException(status_code=404, detail="No impact run found")
+    plan = evidence_store.get_test_plan_by_impact_run(impact_run["run_id"])
+    if plan is None:
+        raise HTTPException(status_code=404, detail="No test plan found")
+    _, suggestions = _wiki_test_scope(s, impact_run)
+    mappings = _mappings_for_plan(s, plan)
+    return _plan_response(
+        plan,
+        existing_mappings=mappings,
+        external_feature_suggestions=suggestions,
+    )
+
+
+@router.get("/{session_id}/tests/results")
+async def get_latest_test_results(session_id: str) -> dict:
+    """Return the latest test result using the frontend's session-level route."""
+    s = session_svc.get_session(session_id)
+    if s is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+    impact_run = evidence_store.get_latest_impact_run(session_id)
+    plan = (
+        evidence_store.get_test_plan_by_impact_run(impact_run["run_id"])
+        if impact_run
+        else None
+    )
+    result = evidence_store.get_test_result_by_plan(plan["plan_id"]) if plan else None
+    if result is None:
+        raise HTTPException(status_code=404, detail="No test result found")
+    return {
+        "run_id": result["result_id"],
+        "plan_id": result["plan_id"],
+        "session_id": session_id,
+        "component_statuses": result["component_statuses"],
+        "test_results": _test_case_results(
+            result["per_test"], plan.get("scenarios") or []
+        ),
+        "sandbox_exit_code": result["exit_code"],
+        "infrastructure_error": (
+            "Sandbox execution failed" if result["infrastructure_error"] else None
+        ),
+    }
 
 
 @router.post("/{session_id}/tests/plan", status_code=202)
@@ -62,11 +120,38 @@ async def create_test_plan(session_id: str, body: PlanRequest) -> dict:
     impact_run = evidence_store.get_impact_run(body.impact_run_id)
     if impact_run is None:
         raise HTTPException(status_code=404, detail="Impact run not found")
+    if impact_run["session_id"] != session_id:
+        raise HTTPException(
+            status_code=403, detail="Impact run does not belong to session"
+        )
+
+    impact_node_ids = {
+        row["node_id"] for row in evidence_store.get_impact_nodes(body.impact_run_id)
+    }
+    if not body.selected_node_ids:
+        raise HTTPException(
+            status_code=422, detail="Select at least one impacted component"
+        )
+    invalid_node_ids = [
+        node_id for node_id in body.selected_node_ids if node_id not in impact_node_ids
+    ]
+    if invalid_node_ids:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Selected components are not in this impact run: {invalid_node_ids}",
+        )
+
+    _, external_suggestions = _wiki_test_scope(s, impact_run)
+    requested_node_ids = list(dict.fromkeys(body.selected_node_ids))
 
     # Return existing plan if already created for this impact run
     existing = evidence_store.get_test_plan_by_impact_run(body.impact_run_id)
     if existing is not None:
-        return _plan_response(existing)
+        return _plan_response(
+            existing,
+            existing_mappings=_mappings_for_plan(s, existing),
+            external_feature_suggestions=external_suggestions,
+        )
 
     # Fetch node details for selected nodes
     all_nodes = evidence_store.get_nodes(session_id)
@@ -79,7 +164,7 @@ async def create_test_plan(session_id: str, body: PlanRequest) -> dict:
             "line_start": node_map[nid]["line_start"] if nid in node_map else 0,
             "line_end": node_map[nid]["line_end"] if nid in node_map else 0,
         }
-        for nid in body.selected_node_ids
+        for nid in requested_node_ids
     ]
 
     # Test Mapper: find existing tests for each node
@@ -103,7 +188,29 @@ async def create_test_plan(session_id: str, body: PlanRequest) -> dict:
         diff_content=body.diff_content,
     )
 
-    scenarios = [s.model_dump() for s in proposal.scenarios] if proposal else []
+    scenarios = (
+        [scenario.model_dump() for scenario in proposal.scenarios]
+        if proposal
+        else build_deterministic_scenarios(repo_path, selected_nodes)
+    )
+    analysis_notes = (
+        proposal.analysis_notes
+        if proposal
+        else [
+            (
+                "Bob analysis was unavailable. RepoDoc derived scenarios from explicit "
+                "Python branches, exceptions, routes, and source contracts."
+            )
+        ]
+    )
+    overall_rationale = (
+        proposal.overall_rationale
+        if proposal
+        else (
+            "The selected components have an offline, evidence-backed plan derived from "
+            "their source structure. These scenarios do not infer unstated business rules."
+        )
+    )
 
     plan_id = str(uuid.uuid4())
     evidence_store.save_test_plan(
@@ -111,10 +218,16 @@ async def create_test_plan(session_id: str, body: PlanRequest) -> dict:
         session_id=session_id,
         impact_run_id=body.impact_run_id,
         scenarios=scenarios,
+        analysis_notes=analysis_notes,
+        overall_rationale=overall_rationale,
     )
 
     plan = evidence_store.get_test_plan(plan_id)
-    return _plan_response(plan, existing_mappings=mapping_dicts)
+    return _plan_response(
+        plan,
+        existing_mappings=mapping_dicts,
+        external_feature_suggestions=external_suggestions,
+    )
 
 
 @router.post("/{session_id}/tests/plan/{plan_id}/approve", status_code=200)
@@ -141,10 +254,137 @@ async def approve_test_plan(
     if plan["session_id"] != session_id:
         raise HTTPException(status_code=403, detail="Plan does not belong to session")
 
-    new_status = "approved" if body.approved else "rejected"
-    evidence_store.update_test_plan_status(plan_id, new_status)
+    if plan["status"] != "proposed":
+        raise HTTPException(
+            status_code=422,
+            detail=f"Plan status is '{plan['status']}'; only proposed plans can be reviewed.",
+        )
 
-    return {"plan_id": plan_id, "status": new_status}
+    if not body.approved:
+        evidence_store.update_test_plan_status(plan_id, "rejected")
+        rejected = evidence_store.get_test_plan(plan_id)
+        return _plan_response(rejected, existing_mappings=_mappings_for_plan(s, plan))
+
+    evidence_store.update_test_plan_status(plan_id, "approved")
+    approved = evidence_store.get_test_plan(plan_id)
+    working_copy_root = os.path.abspath(_WORKING_COPY_ROOT)
+    generated_files = await asyncio.to_thread(
+        generate_test_files, approved, working_copy_root
+    )
+    generated_paths = set(generated_files)
+    scenarios = []
+    for index, scenario in enumerate(approved.get("scenarios") or [], start=1):
+        updated = dict(scenario)
+        expected_path = os.path.join(
+            working_copy_root,
+            "tests",
+            "generated",
+            generated_test_filename(scenario, index),
+        )
+        generated_path = expected_path if expected_path in generated_paths else ""
+        updated["generation_status"] = "generated" if generated_path else "failed"
+        updated["generated_test_file"] = generated_path or ""
+        scenarios.append(updated)
+    evidence_store.update_test_plan_scenarios(
+        plan_id=plan_id,
+        scenarios=scenarios,
+        analysis_notes=approved.get("analysis_notes") or [],
+        overall_rationale=approved.get("overall_rationale") or "",
+    )
+    updated_plan = evidence_store.get_test_plan(plan_id)
+    return _plan_response(
+        updated_plan,
+        existing_mappings=_mappings_for_plan(s, updated_plan),
+    )
+
+
+@router.post("/{session_id}/tests/plan/{plan_id}/refine", status_code=200)
+async def refine_test_plan(session_id: str, plan_id: str, body: RefineRequest) -> dict:
+    """
+    Re-run the Test Agent with user feedback to update scenarios in-place.
+    Only allowed while plan is in 'proposed' status (not yet approved/rejected).
+    """
+    s = session_svc.get_session(session_id)
+    if s is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    plan = evidence_store.get_test_plan(plan_id)
+    if plan is None:
+        raise HTTPException(status_code=404, detail="Test plan not found")
+
+    if plan["session_id"] != session_id:
+        raise HTTPException(status_code=403, detail="Plan does not belong to session")
+
+    if plan["status"] != "proposed":
+        raise HTTPException(
+            status_code=422,
+            detail=f"Plan status is '{plan['status']}'; can only refine a 'proposed' plan.",
+        )
+
+    # Re-fetch node details for the scenarios already in the plan
+    all_nodes = evidence_store.get_nodes(session_id)
+    node_map = {n["node_id"]: n for n in all_nodes}
+    scenario_node_ids = list(
+        dict.fromkeys(sc.get("component_id") for sc in (plan.get("scenarios") or []))
+    )
+    selected_nodes = [
+        {
+            "node_id": nid,
+            "name": node_map[nid]["name"] if nid in node_map else nid,
+            "path": node_map[nid]["path"] if nid in node_map else "",
+            "line_start": node_map[nid]["line_start"] if nid in node_map else 0,
+            "line_end": node_map[nid]["line_end"] if nid in node_map else 0,
+        }
+        for nid in scenario_node_ids
+    ]
+
+    repo_path = s["repo_path"]
+    mappings = map_tests_to_nodes(repo_path, selected_nodes)
+    mapping_dicts = [
+        {
+            "node_id": m.node_id,
+            "test_files": m.test_files,
+            "coverage_status": m.coverage_status,
+        }
+        for m in mappings
+    ]
+
+    proposal = await run_test_agent(
+        session_id=session_id,
+        selected_nodes=selected_nodes,
+        existing_test_mappings=mapping_dicts,
+        change_description=body.feedback,
+        diff_content=None,
+    )
+
+    new_scenarios = (
+        [s.model_dump() for s in proposal.scenarios]
+        if proposal
+        else plan.get("scenarios") or []
+    )
+    new_notes = (
+        proposal.analysis_notes if proposal else plan.get("analysis_notes") or []
+    )
+    new_rationale = (
+        proposal.overall_rationale if proposal else plan.get("overall_rationale") or ""
+    )
+
+    evidence_store.update_test_plan_scenarios(
+        plan_id=plan_id,
+        scenarios=new_scenarios,
+        analysis_notes=new_notes,
+        overall_rationale=new_rationale,
+    )
+
+    updated = evidence_store.get_test_plan(plan_id)
+    _, external_suggestions = _wiki_test_scope(
+        s, evidence_store.get_impact_run(plan["impact_run_id"]) or {}
+    )
+    return _plan_response(
+        updated,
+        existing_mappings=mapping_dicts,
+        external_feature_suggestions=external_suggestions,
+    )
 
 
 @router.post("/{session_id}/tests/plan/{plan_id}/run", status_code=202)
@@ -174,11 +414,20 @@ async def run_test_plan(session_id: str, plan_id: str) -> dict:
     repo_path = s["repo_path"]
     working_copy_root = os.path.abspath(_WORKING_COPY_ROOT)
 
-    # Generate test files
-    try:
-        generated_files = generate_test_files(plan, working_copy_root)
-    except ApprovalRequiredError as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    generated_files = [
+        scenario.get("generated_test_file", "")
+        for scenario in (plan.get("scenarios") or [])
+        if scenario.get("generation_status") == "generated"
+        and scenario.get("generated_test_file")
+    ]
+    missing_generated_files = [
+        path for path in generated_files if not os.path.isfile(path)
+    ]
+    if missing_generated_files or (plan.get("scenarios") and not generated_files):
+        raise HTTPException(
+            status_code=422,
+            detail="Approved test files are missing. Recreate the test plan and approve it again.",
+        )
 
     # Gather existing test files from mapping context
     # (we re-run the mapper to get current file list)
@@ -277,15 +526,87 @@ async def get_test_result(session_id: str, plan_id: str) -> dict:
 # ── Helpers ────────────────────────────────────────────────────────────────────
 
 
-def _plan_response(plan: dict, existing_mappings: list[dict] | None = None) -> dict:
+def _plan_response(
+    plan: dict,
+    existing_mappings: list[dict] | None = None,
+    external_feature_suggestions: list[dict] | None = None,
+) -> dict:
     return {
         "plan_id": plan["plan_id"],
         "session_id": plan["session_id"],
         "impact_run_id": plan["impact_run_id"],
         "scenarios": plan["scenarios"],
         "status": plan["status"],
+        "analysis_notes": plan.get("analysis_notes") or [],
+        "overall_rationale": plan.get("overall_rationale") or "",
         "existing_test_mappings": existing_mappings or [],
+        "coverage_gaps": [
+            mapping["node_id"]
+            for mapping in (existing_mappings or [])
+            if mapping["coverage_status"] == "none"
+        ],
+        "selected_node_ids": list(
+            dict.fromkeys(
+                scenario.get("component_id")
+                for scenario in (plan.get("scenarios") or [])
+                if scenario.get("component_id")
+            )
+        ),
+        "generated_files": [
+            scenario.get("generated_test_file")
+            for scenario in (plan.get("scenarios") or [])
+            if scenario.get("generated_test_file")
+        ],
+        "external_feature_suggestions": external_feature_suggestions or [],
     }
+
+
+def _mappings_for_plan(session: dict, plan: dict) -> list[dict]:
+    node_map = {
+        n["node_id"]: n for n in evidence_store.get_nodes(session["session_id"])
+    }
+    selected_nodes = [
+        node_map[scenario["component_id"]]
+        for scenario in (plan.get("scenarios") or [])
+        if scenario.get("component_id") in node_map
+    ]
+    return [
+        {
+            "node_id": mapping.node_id,
+            "test_files": mapping.test_files,
+            "coverage_status": mapping.coverage_status,
+        }
+        for mapping in map_tests_to_nodes(session["repo_path"], selected_nodes)
+    ]
+
+
+def _wiki_test_scope(session: dict, impact_run: dict) -> tuple[list[str], list[dict]]:
+    architecture_path = (session.get("stack") or {}).get("architecture_path")
+    if not architecture_path:
+        return [], []
+    architecture = parse_feature_wiki(session["repo_path"], architecture_path)
+    origins = set(impact_run.get("origin_ids") or [])
+    primary = next(
+        (
+            feature
+            for feature in architecture.features
+            if origins and origins.issubset({f"file:{path}" for path in feature.files})
+        ),
+        None,
+    )
+    if primary is None:
+        return [], []
+    by_id = {feature.feature_id: feature for feature in architecture.features}
+    suggestions = [
+        {
+            "feature_id": feature_id,
+            "name": by_id[feature_id].name,
+            "reason": "Connected to the primary feature; tests are not included yet",
+        }
+        for feature_id in primary.connected_feature_ids
+        if feature_id in by_id
+    ]
+    return [f"file:{path}" for path in primary.files], suggestions
 
 
 def _build_run_warnings(
@@ -321,3 +642,41 @@ def _build_run_warnings(
             + ", ".join(unexecuted)
         )
     return warnings
+
+
+def _test_case_results(per_test: list[dict], scenarios: list[dict]) -> list[dict]:
+    scenario_components = [
+        (
+            str(scenario.get("proposed_test_function") or ""),
+            str(scenario.get("component_id") or ""),
+        )
+        for scenario in scenarios
+    ]
+    formatted: list[dict] = []
+    for index, test in enumerate(per_test, start=1):
+        nodeid = str(test.get("nodeid") or "")
+        parts = nodeid.split("::")
+        test_file = parts[0] if parts else nodeid
+        test_function = parts[-1] if len(parts) > 1 else nodeid
+        outcome = str(test.get("outcome") or "error")
+        status = (
+            outcome if outcome in {"passed", "failed", "error", "skipped"} else "error"
+        )
+        linked_node_ids = [
+            component_id
+            for function_name, component_id in scenario_components
+            if function_name and function_name in nodeid and component_id
+        ]
+        formatted.append(
+            {
+                "test_id": f"test-{index}",
+                "test_file": test_file,
+                "test_function": test_function,
+                "status": status,
+                "stdout": "",
+                "stderr": "",
+                "duration_ms": 0,
+                "linked_node_ids": linked_node_ids,
+            }
+        )
+    return formatted

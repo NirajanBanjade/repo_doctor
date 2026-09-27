@@ -9,8 +9,14 @@ from __future__ import annotations
 from app.db import evidence_store
 
 
-def create_session(repo_path: str, db_url: str = "sqlite:///./repodoc.db") -> dict:
-    return evidence_store.create_session(repo_path, db_url=db_url)
+def create_session(
+    repo_path: str,
+    architecture_path: str | None = None,
+    db_url: str = "sqlite:///./repodoc.db",
+) -> dict:
+    return evidence_store.create_session(
+        repo_path, architecture_path=architecture_path, db_url=db_url
+    )
 
 
 def get_session(session_id: str, db_url: str = "sqlite:///./repodoc.db") -> dict | None:

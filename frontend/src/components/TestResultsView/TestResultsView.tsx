@@ -4,10 +4,7 @@ import { getTestResults } from "@/api/client";
 import Spinner from "@/components/Spinner";
 import type { TestCaseResult, ComponentTestStatus } from "@/types";
 
-const COMPONENT_STATUS_COLOR: Record<
-  ComponentTestStatus["status"],
-  string
-> = {
+const COMPONENT_STATUS_COLOR: Record<ComponentTestStatus["status"], string> = {
   covered_passed: "var(--success)",
   covered_failed: "var(--danger)",
   unexecuted: "var(--muted)",
@@ -26,14 +23,17 @@ interface Props {
 }
 
 export default function TestResultsView({ sessionId }: Props) {
-  const [selectedComponent, setSelectedComponent] = useState<string | null>(
-    null,
-  );
+  const [selectedComponent, setSelectedComponent] = useState<string | null>(null);
   const [expandedTest, setExpandedTest] = useState<string | null>(null);
 
-  const { data: result, isPending, error } = useQuery({
+  const {
+    data: result,
+    isPending,
+    error,
+  } = useQuery({
     queryKey: ["testresults", sessionId],
     queryFn: () => getTestResults(sessionId),
+    retry: false,
   });
 
   if (isPending) {
@@ -53,9 +53,7 @@ export default function TestResultsView({ sessionId }: Props) {
   }
 
   const filteredTests = selectedComponent
-    ? result.test_results.filter((t) =>
-        t.linked_node_ids.includes(selectedComponent),
-      )
+    ? result.test_results.filter((t) => t.linked_node_ids.includes(selectedComponent))
     : result.test_results;
 
   const passed = result.test_results.filter((t) => t.status === "passed").length;
@@ -103,9 +101,7 @@ export default function TestResultsView({ sessionId }: Props) {
           ✗ {failed} failed
         </span>
         <span className="text-muted">{total} total</span>
-        <span className="text-muted">
-          exit code: {result.sandbox_exit_code}
-        </span>
+        <span className="text-muted">exit code: {result.sandbox_exit_code}</span>
       </div>
 
       <div style={{ display: "flex", gap: 16 }}>
@@ -119,9 +115,7 @@ export default function TestResultsView({ sessionId }: Props) {
             gap: 6,
           }}
         >
-          <p style={{ fontSize: 12, fontWeight: 600, marginBottom: 4 }}>
-            Components
-          </p>
+          <p style={{ fontSize: 12, fontWeight: 600, marginBottom: 4 }}>Components</p>
           <button
             className={`btn ${selectedComponent === null ? "btn-primary" : "btn-secondary"}`}
             style={{ justifyContent: "flex-start", fontSize: 12, padding: "5px 10px" }}
@@ -133,7 +127,12 @@ export default function TestResultsView({ sessionId }: Props) {
             <button
               key={cs.node_id}
               className={`btn ${selectedComponent === cs.node_id ? "btn-primary" : "btn-secondary"}`}
-              style={{ justifyContent: "flex-start", fontSize: 11, padding: "5px 10px", gap: 6 }}
+              style={{
+                justifyContent: "flex-start",
+                fontSize: 11,
+                padding: "5px 10px",
+                gap: 6,
+              }}
               onClick={() => setSelectedComponent(cs.node_id)}
             >
               <span
@@ -148,7 +147,11 @@ export default function TestResultsView({ sessionId }: Props) {
               />
               <span
                 className="mono"
-                style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+                style={{
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                  whiteSpace: "nowrap",
+                }}
               >
                 {cs.node_id.split("::").pop()}
               </span>
@@ -185,9 +188,7 @@ export default function TestResultsView({ sessionId }: Props) {
                     cursor: "pointer",
                   }}
                   onClick={() =>
-                    setExpandedTest(
-                      expandedTest === t.test_id ? null : t.test_id,
-                    )
+                    setExpandedTest(expandedTest === t.test_id ? null : t.test_id)
                   }
                 >
                   <span

@@ -10,6 +10,7 @@ from __future__ import annotations
 import re
 import uuid
 from dataclasses import dataclass, field
+from pathlib import Path
 
 # ── Data classes ──────────────────────────────────────────────────────────────
 
@@ -61,7 +62,7 @@ def _extract_commands_from_text(text: str) -> list[str]:
     return commands
 
 
-def build_setup_plan(readme_content: str) -> SetupPlan:
+def build_setup_plan(readme_content: str, repo_path: str | None = None) -> SetupPlan:
     """
     Parse a README and return an ordered SetupPlan.
 
@@ -116,6 +117,21 @@ def build_setup_plan(readme_content: str) -> SetupPlan:
         if cmd not in seen:
             seen.add(cmd)
             unique_commands.append(cmd)
+
+    if repo_path:
+        root = Path(repo_path)
+        dependency_checks: list[str] = []
+        if (root / "requirements.txt").is_file():
+            dependency_checks.append("python -m pip check")
+        if (
+            root / "pyproject.toml"
+        ).is_file() and "python -m pip check" not in dependency_checks:
+            dependency_checks.append("python -m pip check")
+        if (root / "package.json").is_file():
+            dependency_checks.append("npm ls --all")
+        for command in dependency_checks:
+            if command not in seen:
+                unique_commands.append(command)
 
     steps = [
         SetupStep(step_id=str(uuid.uuid4()), command=cmd) for cmd in unique_commands

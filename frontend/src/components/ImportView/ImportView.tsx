@@ -8,14 +8,16 @@ interface ImportViewProps {
 
 export default function ImportView({ onSessionCreated }: ImportViewProps) {
   const [repoPath, setRepoPath] = useState("");
+  const [architecturePath, setArchitecturePath] = useState("");
   const { mutate, isPending, error } = useCreateSession();
 
   const handleSubmit = (e: FormEvent) => {
     e.preventDefault();
     const path = repoPath.trim();
-    if (!path) return;
+    const wikiPath = architecturePath.trim();
+    if (!path || !wikiPath) return;
     mutate(
-      { repo_path: path },
+      { repo_path: path, architecture_path: wikiPath },
       { onSuccess: (session) => onSessionCreated(session.session_id) },
     );
   };
@@ -68,11 +70,23 @@ export default function ImportView({ onSessionCreated }: ImportViewProps) {
             autoFocus
           />
 
+          <label
+            htmlFor="architecture-path"
+            style={{ display: "block", marginBottom: 6, fontWeight: 500 }}
+          >
+            Feature wiki directory
+          </label>
+          <input
+            id="architecture-path"
+            type="text"
+            value={architecturePath}
+            onChange={(e) => setArchitecturePath(e.target.value)}
+            placeholder="dayate_wiki or /absolute/path/to/wiki"
+            style={{ marginBottom: 16 }}
+          />
+
           {error && (
-            <p
-              className="text-danger"
-              style={{ fontSize: 13, marginBottom: 12 }}
-            >
+            <p className="text-danger" style={{ fontSize: 13, marginBottom: 12 }}>
               {error.message}
             </p>
           )}
@@ -80,12 +94,12 @@ export default function ImportView({ onSessionCreated }: ImportViewProps) {
           <button
             type="submit"
             className="btn btn-primary"
-            disabled={isPending || !repoPath.trim()}
+            disabled={isPending || !repoPath.trim() || !architecturePath.trim()}
             style={{ width: "100%", justifyContent: "center" }}
           >
             {isPending ? (
               <>
-                <Spinner size={14} label="Creating session" /> Creating session…
+                <Spinner size={14} label="Analysing repository" /> Analysing repository…
               </>
             ) : (
               "Analyse Repository"
@@ -97,8 +111,8 @@ export default function ImportView({ onSessionCreated }: ImportViewProps) {
           className="text-muted"
           style={{ fontSize: 12, marginTop: 16, lineHeight: 1.5 }}
         >
-          RepoDoc clones the repository into a read-only sandbox. Your original
-          files are never modified.
+          RepoDoc clones the repository into a read-only sandbox. Your original files
+          are never modified.
         </p>
       </div>
     </div>

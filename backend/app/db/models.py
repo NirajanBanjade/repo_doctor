@@ -95,9 +95,11 @@ test_plans = sa.Table(
         nullable=False,
     ),
     sa.Column("scenarios", sa.JSON, nullable=False),
+    sa.Column("analysis_notes", sa.JSON, nullable=False, default=[]),
+    sa.Column("overall_rationale", sa.String, nullable=False, default=""),
     sa.Column(
-        "status", sa.String, nullable=False, default="pending"
-    ),  # pending | approved | rejected
+        "status", sa.String, nullable=False, default="proposed"
+    ),  # proposed | approved | rejected
     sa.Column("created_at", sa.DateTime, nullable=False),
 )
 

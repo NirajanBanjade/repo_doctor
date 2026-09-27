@@ -18,9 +18,10 @@ const TEST_STATUS_COLOR = {
 export default function TestResultsView({ sessionId }) {
     const [selectedComponent, setSelectedComponent] = useState(null);
     const [expandedTest, setExpandedTest] = useState(null);
-    const { data: result, isPending, error } = useQuery({
+    const { data: result, isPending, error, } = useQuery({
         queryKey: ["testresults", sessionId],
         queryFn: () => getTestResults(sessionId),
+        retry: false,
     });
     if (isPending) {
         return (_jsxs("div", { style: { display: "flex", gap: 10, alignItems: "center", padding: 32 }, children: [_jsx(Spinner, {}), " Loading test results\u2026"] }));
@@ -57,14 +58,23 @@ export default function TestResultsView({ sessionId }) {
                             display: "flex",
                             flexDirection: "column",
                             gap: 6,
-                        }, children: [_jsx("p", { style: { fontSize: 12, fontWeight: 600, marginBottom: 4 }, children: "Components" }), _jsx("button", { className: `btn ${selectedComponent === null ? "btn-primary" : "btn-secondary"}`, style: { justifyContent: "flex-start", fontSize: 12, padding: "5px 10px" }, onClick: () => setSelectedComponent(null), children: "All tests" }), result.component_statuses.map((cs) => (_jsxs("button", { className: `btn ${selectedComponent === cs.node_id ? "btn-primary" : "btn-secondary"}`, style: { justifyContent: "flex-start", fontSize: 11, padding: "5px 10px", gap: 6 }, onClick: () => setSelectedComponent(cs.node_id), children: [_jsx("span", { style: {
+                        }, children: [_jsx("p", { style: { fontSize: 12, fontWeight: 600, marginBottom: 4 }, children: "Components" }), _jsx("button", { className: `btn ${selectedComponent === null ? "btn-primary" : "btn-secondary"}`, style: { justifyContent: "flex-start", fontSize: 12, padding: "5px 10px" }, onClick: () => setSelectedComponent(null), children: "All tests" }), result.component_statuses.map((cs) => (_jsxs("button", { className: `btn ${selectedComponent === cs.node_id ? "btn-primary" : "btn-secondary"}`, style: {
+                                    justifyContent: "flex-start",
+                                    fontSize: 11,
+                                    padding: "5px 10px",
+                                    gap: 6,
+                                }, onClick: () => setSelectedComponent(cs.node_id), children: [_jsx("span", { style: {
                                             width: 8,
                                             height: 8,
                                             borderRadius: "50%",
                                             background: COMPONENT_STATUS_COLOR[cs.status],
                                             flexShrink: 0,
                                             display: "inline-block",
-                                        } }), _jsx("span", { className: "mono", style: { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }, children: cs.node_id.split("::").pop() }), _jsxs("span", { className: "text-muted", style: { marginLeft: "auto" }, children: [cs.passed, "/", cs.test_count] })] }, cs.node_id)))] }), _jsx("div", { style: { flex: 1, display: "flex", flexDirection: "column", gap: 6 }, children: filteredTests.length === 0 ? (_jsx("p", { className: "text-muted", style: { padding: 12 }, children: "No tests for this component." })) : (filteredTests.map((t) => (_jsxs("div", { style: {
+                                        } }), _jsx("span", { className: "mono", style: {
+                                            overflow: "hidden",
+                                            textOverflow: "ellipsis",
+                                            whiteSpace: "nowrap",
+                                        }, children: cs.node_id.split("::").pop() }), _jsxs("span", { className: "text-muted", style: { marginLeft: "auto" }, children: [cs.passed, "/", cs.test_count] })] }, cs.node_id)))] }), _jsx("div", { style: { flex: 1, display: "flex", flexDirection: "column", gap: 6 }, children: filteredTests.length === 0 ? (_jsx("p", { className: "text-muted", style: { padding: 12 }, children: "No tests for this component." })) : (filteredTests.map((t) => (_jsxs("div", { style: {
                                 border: "1px solid var(--border)",
                                 borderRadius: "var(--radius)",
                                 overflow: "hidden",

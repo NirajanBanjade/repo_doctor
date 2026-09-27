@@ -75,8 +75,12 @@ export const applyEnvironmentFix = async (
 export const triggerImpact = async (
   sessionId: string,
   body: ImpactRequest,
-): Promise<void> => {
-  await http.post(`/sessions/${sessionId}/impact`, body);
+): Promise<ImpactRunResult> => {
+  const { data } = await http.post<ImpactRunResult>(
+    `/sessions/${sessionId}/impact`,
+    body,
+  );
+  return data;
 };
 
 export const getImpactGraph = async (sessionId: string): Promise<ImpactRunResult> => {
@@ -94,15 +98,42 @@ export const getTestPlan = async (sessionId: string): Promise<TestPlanProposal> 
   return data;
 };
 
+export const createTestPlan = async (
+  sessionId: string,
+  body: { impact_run_id: string; selected_node_ids: string[] },
+): Promise<TestPlanProposal> => {
+  const { data } = await http.post<TestPlanProposal>(
+    `/sessions/${sessionId}/tests/plan`,
+    body,
+  );
+  return data;
+};
+
 export const approveTestPlan = async (
   sessionId: string,
   body: ApprovePlanRequest,
-): Promise<void> => {
-  await http.post(`/sessions/${sessionId}/tests/approve`, body);
+): Promise<TestPlanProposal> => {
+  const { data } = await http.post<TestPlanProposal>(
+    `/sessions/${sessionId}/tests/plan/${body.plan_id}/approve`,
+    body,
+  );
+  return data;
 };
 
-export const runTests = async (sessionId: string): Promise<void> => {
-  await http.post(`/sessions/${sessionId}/tests/run`);
+export const runTests = async (sessionId: string, planId: string): Promise<void> => {
+  await http.post(`/sessions/${sessionId}/tests/plan/${planId}/run`);
+};
+
+export const refinePlan = async (
+  sessionId: string,
+  planId: string,
+  feedback: string,
+): Promise<TestPlanProposal> => {
+  const { data } = await http.post<TestPlanProposal>(
+    `/sessions/${sessionId}/tests/plan/${planId}/refine`,
+    { feedback },
+  );
+  return data;
 };
 
 export const getTestResults = async (sessionId: string): Promise<TestRunResult> => {

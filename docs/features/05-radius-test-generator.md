@@ -1,132 +1,56 @@
-# Feature 05 — Radius Test Generator
+# Feature 05 — Test Planning, Generation, and Execution
 
 ## Purpose
 
-From a selected impact radius, identify existing tests covering affected components, surface coverage gaps, propose focused regression test scenarios, and — after developer approval — generate and execute those tests in the isolated sandbox, reporting per-component pass/fail/unexecuted status linked back to graph nodes.
+Turn selected impact nodes into an evidence-backed plan, require plan-level approval
+before writing files, and require a separate action before isolated execution.
 
----
+## Plan Creation
 
-## Functional Requirements
+`POST /api/v1/sessions/{id}/tests/plan` accepts an impact run and a non-empty subset
+of its nodes. It validates ownership, returns an existing plan for that impact run
+when present, maps existing pytest files, and calls the Test Agent wrapper.
 
-1. Accept a selection of nodes from an existing ImpactScope run (all or a developer-chosen subset).
-2. Discover existing pytest tests linked to the selected nodes using static test mapping.
-3. Identify which selected nodes have no existing test coverage (coverage gaps).
-4. Invoke the Test Agent via Bob to propose behavioral test scenarios for affected components, informed by the change description and the existing diff.
-5. Present a **test plan** to the developer before generating any code. The plan must include: scenario name, impacted component, source evidence, expected behavior, and proposed test file location.
-6. Require explicit developer approval for the plan before proceeding to code generation.
-7. After approval, generate test files in `working_copy/tests/generated/`.
-8. Execute the generated tests alongside applicable existing tests in the Docker sandbox.
-9. Report per-component status: `covered_passed`, `covered_failed`, `unexecuted`, or `no_suitable_test`.
-10. Record stdout, stderr, and per-test status; link each generated test back to its graph node(s).
-11. Never describe passing generated tests as proof that every affected component is safe. The report must always list skipped nodes, inferred edges, and components with no test.
+When Bob is unavailable, `deterministic_test_planner.py` derives scenarios from
+Python AST evidence:
 
----
+- normal path;
+- explicit conditional branches;
+- explicit `raise` paths;
+- decorated FastAPI route contracts;
+- source contracts for unsupported or file-level nodes.
 
-## Inputs
+The plan includes rationale, notes, existing mappings, coverage gaps, selected nodes,
+and connected-feature suggestions. `POST .../{plan_id}/refine` may update only a
+`proposed` plan; with Bob unavailable it preserves the current scenarios.
 
-| Input | Source | Format |
-|---|---|---|
-| `session_id` | URL parameter | UUID |
-| `impact_run_id` | Request body | UUID of an existing ImpactScope run |
-| `selected_node_ids` | Request body | `string[]` — subset of nodes from the impact run |
-| `approval` | Approval endpoint body | `{ plan_id, approved: true }` |
+## Approval and Generation
 
----
+`POST .../{plan_id}/approve` accepts `{plan_id, approved}`. Rejection changes status
+without writing files. Approval changes status to `approved`, generates conservative
+pytest source-contract files under the configured working copy, and records
+`generation_status` and `generated_test_file` in scenario JSON.
 
-## Outputs
+Approval is the file-writing gate. It does not execute tests.
 
-| Output | Destination | Format |
-|---|---|---|
-| `TestPlanProposal` | SQLite `test_plans`, REST response | See `docs/api/contracts.md#TestPlanProposal` |
-| Generated test files | `working_copy/tests/generated/` | `.py` pytest files |
-| `TestRunResult` | SQLite `test_results`, REST response | See `docs/api/contracts.md#TestRunResult` |
-| Per-component status | REST response | See `docs/api/contracts.md#ComponentTestStatus` |
+## Execution
 
----
+`POST .../{plan_id}/run` requires approved status and existing generated files. It
+reruns test mapping, then sends applicable existing tests and generated tests to the
+Docker executor. The source and working-copy mounts are read-only; the container has
+one CPU, 512 MB, no network, and a 120-second timeout.
 
-## Technical Implementation
+Pytest JSON results map back to components as `covered_passed`, `covered_failed`,
+`unexecuted`, or `no_suitable_test`. Infrastructure failures remain distinct from
+test failures. Session-level and plan-level GET routes retrieve results.
 
-### Test Mapper (`app/services/test_mapper.py`)
+## Honesty Requirements
 
-1. For each selected `node_id`, search the repository's `tests/` directory for test files that import or reference the node's module path.
-2. Use AST analysis to find `assert` statements or mock patches referencing the node's function name.
-3. Return `ExistingTestMapping`: `{ node_id, test_files[], coverage_status }`.
-4. `coverage_status` is `"covered"` only if at least one test file directly exercises the function. Transitive coverage is labeled `"indirect"`.
+Generated source-contract checks do not establish business correctness. Responses
+must expose unexecuted/no-test components, inferred edges, and scope limitations.
 
-### Test Agent invocation
+## Tests
 
-Pass Bob: selected nodes (name, path, line range), existing test mapping, change description, diff content (if available), and the repository's test conventions (detected from existing test files).
-
-Validate response against `TestPlanProposal` schema:
-```
-scenarios[]:
-  - name: str
-  - component_id: str          # maps to a graph node_id
-  - source_evidence: str       # file:line reference
-  - expected_behavior: str
-  - proposed_test_file: str    # relative path in working_copy
-  - proposed_test_function: str
-```
-
-**Important:** The test plan is never generated from scratch when it already exists for this `impact_run_id`. Retrieve from `test_plans` and return.
-
-### Test Generator (`app/services/test_generator.py`)
-
-After approval:
-1. For each scenario in the approved plan, generate a pytest function using a templating approach (not LLM generation at this step — the scenario text is the specification).
-
-> **Open question (ARCHITECTURE.md §11 item 2):** Whether the test code itself is generated by Bob or by a template engine is not specified in the PRD. This decision must be made before implementing this step.
-
-2. Write files to `working_copy/tests/generated/{component_name}_test.py`.
-3. Never overwrite an existing test file in the original repo.
-
-### Sandbox execution (`app/sandbox/test_executor.py`)
-
-- Run: `pytest {existing_test_files} working_copy/tests/generated/ --json-report --tb=short`
-- Parse `pytest-json-report` output to extract per-test status.
-- Map each test result back to its `plan_id` scenario and `component_id`.
-
-### Post-execution reporting
-
-Build `ComponentTestStatus` for each selected node:
-- `covered_passed`: node has ≥1 test, all passed.
-- `covered_failed`: node has ≥1 test, at least one failed.
-- `unexecuted`: test file was generated but the sandbox did not run it (infrastructure error).
-- `no_suitable_test`: no existing test and no generated test for this node.
-
----
-
-## Dependencies on Other Features
-
-| Feature | Dependency type |
-|---|---|
-| ImpactScope | Required — test generation operates on an existing impact run |
-| Repository X-Ray | Required — graph must exist for test mapping |
-| Environment Doctor | Soft — a working environment improves test execution reliability |
-| Docker Sandbox Runner | Required — all test execution in sandbox |
-| Bob Integration | Required for Test Agent; degrades to empty scenario list without error |
-
----
-
-## Acceptance Criteria
-
-1. For the sample repo impact run, the Test Mapper identifies existing tests for at least the directly affected node.
-2. The Test Agent proposes at least one scenario per node that has no existing test.
-3. The test plan is displayed before any code is generated; the developer can reject it.
-4. After approval, generated test files are created in `working_copy/tests/generated/` and are not present in the original repo.
-5. Sandbox execution runs both existing and generated tests and returns per-test results.
-6. The seeded downstream regression is detected as `covered_failed` after test execution.
-7. The report explicitly lists any node with `no_suitable_test` — it does not report them as `covered_passed`.
-8. A generated test that cannot be parsed (syntax error) is reported as `unexecuted` with the parse error logged, not silently dropped.
-
----
-
-## Testing Requirements
-
-- Unit test: Test Mapper correctly identifies a known test that covers a fixture function.
-- Unit test: Test Mapper returns `no_suitable_test` for a function with no matching test file.
-- Unit test: `TestPlanProposal` schema validation rejects a scenario missing `component_id`.
-- Unit test: Approval gate — test generation raises `ApprovalRequiredError` if `test_plans.status != "approved"`.
-- Integration test: Full plan → approve → run cycle for a fixture impact run returns valid `TestRunResult`.
-- Sandbox test: A test with a deliberate assertion failure is recorded as `covered_failed`.
-- Sandbox test: The seeded regression assertion failure is detected and reported correctly.
+Tests cover deterministic planning, mapping, schemas, idempotent plan retrieval,
+refinement constraints, plan-level approval/rejection, generated-file metadata,
+missing-file rejection, executor parsing, and component statuses.

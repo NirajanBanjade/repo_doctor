@@ -18,6 +18,7 @@ from app.analysis.impact_engine import compute_impact, parse_diff_symbols
 from app.bob.integration import run_impact_agent
 from app.db import evidence_store
 from app.services import session as session_svc
+from app.services.feature_wiki import parse_feature_wiki
 
 logger = logging.getLogger(__name__)
 
@@ -29,18 +30,19 @@ router = APIRouter()
 
 class ImpactRequest(BaseModel):
     symbol_id: str | None = None
+    feature_id: str | None = None
+    file_path: str | None = None
     git_diff: str | None = None
     change_description: str | None = None
     depth: int = 1
 
     @model_validator(mode="after")
     def _check_exactly_one_origin(self) -> ImpactRequest:
-        has_sym = self.symbol_id is not None
-        has_diff = self.git_diff is not None
-        if has_sym and has_diff:
-            raise ValueError("Provide exactly one of symbol_id or git_diff, not both.")
-        if not has_sym and not has_diff:
-            raise ValueError("One of symbol_id or git_diff is required.")
+        origins = [self.symbol_id, self.feature_id, self.file_path, self.git_diff]
+        if sum(value is not None for value in origins) != 1:
+            raise ValueError(
+                "Provide exactly one of symbol_id, feature_id, file_path, or git_diff."
+            )
         if self.depth not in (1, 2, 3):
             raise ValueError("depth must be 1, 2, or 3.")
         return self
@@ -72,10 +74,13 @@ def _resolve_origins(
     """
     node_ids = {n["node_id"] for n in raw_nodes}
 
-    if req.symbol_id is not None:
-        if req.symbol_id in node_ids:
-            return [req.symbol_id], []
-        return [], [req.symbol_id]
+    direct_id = req.symbol_id
+    if req.file_path is not None:
+        direct_id = f"file:{req.file_path}"
+    if direct_id is not None:
+        if direct_id in node_ids:
+            return [direct_id], []
+        return [], [direct_id]
 
     # git_diff path
     symbols = list(dict.fromkeys(parse_diff_symbols(req.git_diff or "")))  # dedup
@@ -114,8 +119,34 @@ async def run_impact(session_id: str, body: ImpactRequest) -> dict:
     if not raw_nodes:
         raise HTTPException(status_code=422, detail="No graph found — run X-Ray first.")
 
-    # Resolve origins
-    origin_ids, unresolved = _resolve_origins(body, raw_nodes)
+    architecture_path = (s.get("stack") or {}).get("architecture_path")
+    architecture = (
+        parse_feature_wiki(s["repo_path"], architecture_path)
+        if architecture_path
+        else None
+    )
+    primary_feature = None
+    external_features: list[dict] = []
+    if body.feature_id and architecture:
+        primary_feature = next(
+            (f for f in architecture.features if f.feature_id == body.feature_id), None
+        )
+        if primary_feature is None:
+            raise HTTPException(status_code=422, detail="Feature not found in wiki")
+        origin_ids = [f"file:{path}" for path in primary_feature.files]
+        unresolved = []
+        by_id = {f.feature_id: f for f in architecture.features}
+        external_features = [
+            {
+                "feature_id": feature_id,
+                "name": by_id[feature_id].name,
+                "reason": "Connected at the primary feature boundary",
+            }
+            for feature_id in primary_feature.connected_feature_ids
+            if feature_id in by_id
+        ]
+    else:
+        origin_ids, unresolved = _resolve_origins(body, raw_nodes)
     warnings: list[str] = []
 
     if not origin_ids:
@@ -125,10 +156,14 @@ async def run_impact(session_id: str, body: ImpactRequest) -> dict:
     g = _load_nx_graph(session_id, "sqlite:///./repodoc.db")
     bfs = compute_impact(g, origin_ids, body.depth)
 
-    # Collect traversed edges (those actually in the BFS path)
-    traversed_set = set(bfs.traversed_edges)
+    # Include every relationship between impacted files. With a feature as the
+    # origin, all of its files are depth-zero roots, so a traversal-only edge
+    # list would incorrectly render the documented feature flow as disconnected.
+    impacted_ids = set(bfs.visited)
     traversed_edge_rows = [
-        e for e in raw_edges if (e["source_id"], e["target_id"]) in traversed_set
+        e
+        for e in raw_edges
+        if e["source_id"] in impacted_ids and e["target_id"] in impacted_ids
     ]
 
     # Assemble BFS node payloads for Bob
@@ -171,6 +206,7 @@ async def run_impact(session_id: str, body: ImpactRequest) -> dict:
         change_description=body.change_description,
         unresolved_symbols=unresolved,
     )
+    session_svc.update_status(session_id, "impact_complete")
 
     annotations = (
         [a.model_dump() for a in annotations_result.annotations]
@@ -211,6 +247,12 @@ async def run_impact(session_id: str, body: ImpactRequest) -> dict:
             f"Analysis bounded to {body.depth} hop(s) from origin. "
             "Results are not exhaustive."
         ),
+        "primary_feature": (
+            {"feature_id": primary_feature.feature_id, "name": primary_feature.name}
+            if primary_feature
+            else None
+        ),
+        "external_feature_suggestions": external_features,
     }
 
 
@@ -231,7 +273,9 @@ async def get_impact_graph(session_id: str) -> dict:
 
     nodes_rows = evidence_store.get_impact_nodes(run["run_id"])
     raw_nodes = evidence_store.get_nodes(session_id)
+    raw_edges = evidence_store.get_edges(session_id)
     node_map = {n["node_id"]: n for n in raw_nodes}
+    impact_ids = {row["node_id"] for row in nodes_rows}
 
     impact_nodes_out = [
         {
@@ -247,6 +291,33 @@ async def get_impact_graph(session_id: str) -> dict:
         for r in nodes_rows
     ]
 
+    architecture_path = (s.get("stack") or {}).get("architecture_path")
+    primary_feature = None
+    external_features: list[dict] = []
+    if architecture_path:
+        architecture = parse_feature_wiki(s["repo_path"], architecture_path)
+        origins = set(run["origin_ids"])
+        primary_feature = next(
+            (
+                feature
+                for feature in architecture.features
+                if origins
+                and origins.issubset({f"file:{path}" for path in feature.files})
+            ),
+            None,
+        )
+        if primary_feature:
+            by_id = {feature.feature_id: feature for feature in architecture.features}
+            external_features = [
+                {
+                    "feature_id": feature_id,
+                    "name": by_id[feature_id].name,
+                    "reason": "Connected at the primary feature boundary",
+                }
+                for feature_id in primary_feature.connected_feature_ids
+                if feature_id in by_id
+            ]
+
     return {
         "session_id": session_id,
         "run_id": run["run_id"],
@@ -254,6 +325,23 @@ async def get_impact_graph(session_id: str) -> dict:
         "depth": run["depth"],
         "change_description": run["change_description"],
         "nodes": impact_nodes_out,
+        "edges": [
+            {k: v for k, v in edge.items() if k not in ("id", "session_id")}
+            for edge in raw_edges
+            if edge["source_id"] in impact_ids and edge["target_id"] in impact_ids
+        ],
+        "annotations": [],
         "unresolved_symbols": run["unresolved_symbols"],
         "warnings": [],
+        "bounded_analysis": True,
+        "bounded_analysis_note": (
+            f"Analysis bounded to {run['depth']} hop(s) from origin. "
+            "Results are not exhaustive."
+        ),
+        "primary_feature": (
+            {"feature_id": primary_feature.feature_id, "name": primary_feature.name}
+            if primary_feature
+            else None
+        ),
+        "external_feature_suggestions": external_features,
     }

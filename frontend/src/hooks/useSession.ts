@@ -1,10 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import {
-  getSession,
-  createSession,
-  triggerXRay,
-  getXRayGraph,
-} from "@/api/client";
+import { getSession, createSession, triggerXRay, getXRayGraph } from "@/api/client";
 import { useSessionContext } from "@/context/SessionContext";
 import type { CreateSessionRequest } from "@/types";
 
@@ -30,7 +25,11 @@ export function useCreateSession() {
   const { setSession } = useSessionContext();
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (body: CreateSessionRequest) => createSession(body),
+    mutationFn: async (body: CreateSessionRequest) => {
+      const created = await createSession(body);
+      await triggerXRay(created.session_id);
+      return getSession(created.session_id);
+    },
     onSuccess: (session) => {
       setSession(session);
       qc.setQueryData(["session", session.session_id], session);

@@ -7,7 +7,7 @@ Read it before writing a single line of code. All architectural constraints in t
 
 ## 1. Project Purpose
 
-RepoDoc helps a new developer understand an unfamiliar codebase, verify the environment, assess the impact of a change, generate targeted regression tests, and prepare a pull request — all with evidence tied to concrete source references.
+RepoDoc helps a developer understand an unfamiliar codebase from an optional feature wiki or static analysis, verify the environment, assess change impact, review and approve targeted regression tests, and prepare a reviewable pull-request summary — all with evidence tied to source or wiki references.
 
 **Non-goal:** RepoDoc is not a code-generation product, a CI system, or an autonomous agent that merges or deploys code.
 
@@ -39,7 +39,7 @@ Never place application code in the root directory. Never put frontend code in `
 3. **Bob outputs are validated before use.** Every response from a Bob agent is validated against its Pydantic schema in `app/bob/schemas/`. If validation fails, the raw output is stored in `bob_outputs.parsed_ok = false` and the operation is flagged — never silently accepted.
 4. **The original repository clone is read-only.** All modifications (generated tests, fix patches) go into a `working_copy/` directory that is a separate copy. The sandbox mounts the working copy.
 5. **No secrets in code, logs, or commits.** Environment variables only. The sandbox never exposes host environment variables.
-6. **Developer approval is required** before: writing generated test files, applying fix patches, executing newly generated tests, or creating a PR summary. Approval must be recorded in `test_plans.status = 'approved'` before execution proceeds.
+6. **Developer approval is required** before writing generated test files, applying fix patches, or executing generated tests. Test approval is plan-level: approval records `test_plans.status = 'approved'` and generates files; a separate run action executes them. The current verification GET creates a draft PR summary, so do not describe PR-summary approval as implemented.
 7. **Evidence labels are immutable downward.** An edge may only be promoted from `inferred` → `confirmed_static` → `observed_test`, never demoted. Promotion requires re-running the relevant adapter or obtaining a coverage trace result.
 8. **Dynamic and unresolved calls are labeled `inferred` and displayed as such.** Never represent inferred edges as confirmed.
 9. **Container isolation.** The sandbox Docker container must be disposable, resource-limited (CPU, memory, timeout), and network-isolated except for package mirrors. Never run unreviewed scripts on the host.
@@ -75,7 +75,7 @@ Never place application code in the root directory. Never put frontend code in `
 - **State management:** React Query for server state (API calls). React Context only for global UI state (e.g., current session ID). No Redux.
 - **Graph rendering:** React Flow for architecture and impact graphs. Nodes and edges are typed using the interfaces in `frontend/src/types/`.
 - **API client:** A single typed client in `frontend/src/api/client.ts` generated from (or matching) `docs/api/contracts.md`. No inline `fetch` calls in components.
-- **Approval gates:** Any action that writes generated files or executes generated tests must pass through the `ApprovalModal` component with an explicit confirmation step. This is a UI safety constraint.
+- **Approval gates:** Plan approval uses `ApprovalModal`; approval writes generated files. Running is a distinct explicit action and the backend rechecks persisted approval.
 - **No sensitive data in the browser.** The frontend must not store repository credentials, environment secrets, or raw container logs beyond the current session's display buffer.
 - **Tests:** Vitest + React Testing Library. Components under `TestPlanView` and `ApprovalModal` must have unit tests for the approval flow.
 
@@ -89,7 +89,7 @@ Never place application code in the root directory. Never put frontend code in `
 - Adapters must not make network calls, spawn Docker containers, or call Bob.
 - All edges produced by adapters have `evidence_status = "confirmed_static"` by default.
 - An adapter encountering a dynamic call (e.g., `getattr`, reflection, `eval`) must emit an edge with `evidence_status = "inferred"` and a `note` field describing the reason.
-- The TypeScript adapter stub must return empty lists with a logged warning; it must never raise an exception.
+- The JavaScript/TypeScript adapter is a deterministic regex-based adapter. It scans common JS/TS extensions, emits file/class/function nodes and import edges, and labels external or unresolved imports `inferred`. Do not claim it uses the TypeScript Compiler API.
 
 ---
 
@@ -98,7 +98,7 @@ Never place application code in the root directory. Never put frontend code in `
 - Bob is invoked only from `app/bob/integration.py`. No other module may call Bob directly.
 - Each agent invocation must be logged to `bob_outputs` table with raw response, `parsed_ok` flag, and timestamp.
 - Pydantic schemas for Bob outputs live in `app/bob/schemas/`. Each schema has a `model_validate` method; validation failures raise `BobOutputValidationError`.
-- When running parallel Bob agents (Architecture Agent + Documentation Agent; Impact Agent + Test Agent), the backend must launch them concurrently and await both before proceeding. Use `asyncio.gather`.
+- Architecture Agent and Documentation Agent are launched concurrently with `asyncio.gather`. Impact and Test Agents are triggered by separate implemented workflows and are not currently launched as one pair.
 - Bob must not be given the ability to execute shell commands on the host. Only pass Bob the text content it needs (source snippets, README content, diff text, graph JSON).
 - If the Bob invocation API is unavailable or returns an error, the backend degrades gracefully: the relevant feature displays a "Bob analysis unavailable" notice, but static analysis results are still shown.
 
@@ -109,7 +109,7 @@ Never place application code in the root directory. Never put frontend code in `
 - The sandbox image is defined in `docker/Dockerfile.sandbox`. It is built once and reused per session.
 - All test execution happens inside the sandbox via `app/sandbox/test_executor.py`. No pytest calls on the host.
 - The sandbox container must have: CPU limit (1 core), memory limit (512 MB), execution timeout (120 s per run), no network access (or allow-listed package mirrors only).
-- Generated test files are written to `working_copy/tests/generated/` before mounting into the sandbox.
+- Generated test files are written to `${REPODOC_WORKING_COPY:-./working_copy}/tests/generated/` by plan approval before the separate run action.
 - Sandbox stdout, stderr, exit code, and individual test results (parsed from pytest's JSON output `--json-report`) are persisted to `test_results`.
 - A failed sandbox run (timeout, OOM, container exit > 0 for non-test reasons) must be reported as `infrastructure_error`, not as a test failure.
 
@@ -126,30 +126,23 @@ These rules directly implement the PRD's safety and reliability section (§8):
 
 ---
 
-## 10. Feature Implementation Sequence
+## 10. Current Feature State and Dependency Order
 
-Features must be implemented in this order. Do not start a feature until its dependencies are complete and passing.
+The former implementation sequence is no longer the plan. Preserve these current dependencies when extending the product:
 
-| Step | Feature | Depends on |
+| Area | Current state | Depends on |
 |---|---|---|
-| 1 | Database schema and migrations | — |
-| 2 | Session management API | Step 1 |
-| 3 | Repo importer + Python adapter | Step 2 |
-| 4 | Graph builder (NetworkX) | Step 3 |
-| 5 | Repository X-Ray API + Architecture/Documentation Agents | Step 4 |
-| 6 | Architecture map frontend | Step 5 |
-| 7 | Docker sandbox runner | Step 2 |
-| 8 | Environment Doctor | Steps 5, 7 |
-| 9 | ImpactScope (BFS engine + Impact Agent) | Step 4 |
-| 10 | Impact graph frontend | Step 9 |
-| 11 | Test Mapper | Steps 9, 7 |
-| 12 | Test Agent + Test Plan UI | Steps 11, 5 |
-| 13 | Test Generator + Sandbox executor | Steps 12, 7 |
-| 14 | Test Results frontend | Step 13 |
-| 15 | Verification Agent + Report | Steps 13, 8 |
-| 16 | FirstPR feature | Steps 6, 8 |
-| 17 | Verification + PR Summary frontend | Step 15 |
-| 18 | Sample repo seeded demo | All above |
+| Sessions and SQLite evidence store | Implemented | — |
+| Feature-wiki parser and Python/JS/TS adapters | Implemented | Sessions |
+| X-Ray and architecture UI | Implemented | Wiki/adapters, graph store |
+| Environment Doctor | Implemented | Sessions, Docker |
+| ImpactScope | Implemented | Persisted X-Ray graph |
+| Test mapping and deterministic/Bob planning | Implemented | Impact run |
+| Plan refinement, approval, generation, execution | Implemented | Test plan, Docker |
+| Verification and PR-summary draft | Implemented with Bob fallback | Impact and available test evidence |
+| FirstPR | Not wired: dormant frontend only | Requires new backend contract |
+| Bob transport | Not implemented | Concrete Bob interface decision |
+| WebSocket events and observed-test edge promotion | Not implemented | New design work |
 
 ---
 
@@ -225,7 +218,13 @@ Integration tests pass an in-memory or `tmp_path`-scoped URL to stay isolated. D
 
 **`POST /api/v1/sessions/{id}/xray` returns 202, not 200.** The route is synchronous today (runs inline), but the 202 status is intentional — the spec describes it as an async trigger. Do not change this to 200.
 
-**`TypeScriptAdapter.detect()` returns `True` for any repo containing `package.json`**, including Python repos that also have a frontend subfolder. The registry iterates `PythonAdapter` first, so Python wins when both markers exist. New adapters must be inserted *before* `TypeScriptAdapter` in `_REGISTRY`.
+**`TypeScriptAdapter.detect()` searches recursively for `package.json`**, including Python repos with a frontend. The registry iterates `PythonAdapter` first, so Python wins when both markers exist. The adapter now performs lightweight regex extraction; it is not a stub and not compiler-API analysis. New adapters must be ordered deliberately in `_REGISTRY`.
 
 **Bob output is persisted even on failure (`parsed_ok=False`, empty `raw_output=""`).**
 `_validate_and_store` always calls `evidence_store.save_bob_output` regardless of whether Bob returned data. This means every X-Ray run produces two `bob_outputs` rows. Do not add a guard that skips the insert on `None` — downstream queries rely on the presence of these rows to detect that agents were attempted.
+
+**A supplied feature wiki is authoritative for X-Ray.** `sessions.stack` temporarily carries `architecture_path`; X-Ray preserves it when stack detection updates the session. `feature_wiki.py` creates `file:{path}` nodes and documented/inferred edges. Do not also run a language adapter and merge its graph unless the architecture contract is intentionally redesigned.
+
+**Test-plan approval generates files; running does not.** `POST .../approve` sets the plan to `approved`, writes generated files, and records generation metadata in each scenario. `POST .../run` refuses missing files and only executes an already-approved plan.
+
+**FirstPR and WebSockets are not implemented backend features.** FirstPR components/types remain in the frontend, but the tab is hidden and no route is registered. Do not document either feature as available without implementing and testing the backend contract.

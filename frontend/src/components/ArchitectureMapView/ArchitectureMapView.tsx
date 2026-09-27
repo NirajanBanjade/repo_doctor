@@ -1,307 +1,200 @@
-import { useState, useCallback, useMemo } from "react";
+import { useMemo, useState } from "react";
 import ReactFlow, {
   Background,
   Controls,
   MiniMap,
-  type Node,
   type Edge,
-  type NodeMouseHandler,
+  type Node,
 } from "reactflow";
 import "reactflow/dist/style.css";
-import { useXRayGraph, useTriggerXRay } from "@/hooks/useSession";
-import EvidencePanel from "@/components/EvidencePanel";
+import { useTriggerXRay, useXRayGraph } from "@/hooks/useSession";
 import Spinner from "@/components/Spinner";
-import type { GraphNode, GraphEdge, EvidenceRef } from "@/types";
-
-// ── colour map ────────────────────────────────────────
-const KIND_COLOR: Record<GraphNode["kind"], string> = {
-  module: "#3b82d4",
-  class: "#7c5cd8",
-  function: "#16a34a",
-  file: "#57606a",
-};
-
-const EVIDENCE_DASH: Record<GraphEdge["evidence_status"], string> = {
-  confirmed_static: "0",
-  observed_test: "0",
-  inferred: "6 3",
-};
-
-const EDGE_COLOR: Record<GraphEdge["evidence_status"], string> = {
-  confirmed_static: "#16a34a",
-  observed_test: "#3b82d4",
-  inferred: "#d97706",
-};
-
-function buildFlow(
-  nodes: GraphNode[],
-  edges: GraphEdge[],
-): { rfNodes: Node[]; rfEdges: Edge[] } {
-  const COL_SIZE = Math.ceil(Math.sqrt(nodes.length)) || 1;
-  const rfNodes: Node[] = nodes.map((n, i) => ({
-    id: n.node_id,
-    position: { x: (i % COL_SIZE) * 220, y: Math.floor(i / COL_SIZE) * 120 },
-    data: {
-      label: (
-        <div style={{ fontSize: 11, lineHeight: 1.4 }}>
-          <div
-            style={{
-              fontWeight: 600,
-              color: KIND_COLOR[n.kind],
-              marginBottom: 2,
-            }}
-          >
-            {n.name}
-          </div>
-          <div style={{ color: "#57606a" }}>
-            {n.path}:{n.line_start}
-          </div>
-          {n.key_module && (
-            <div style={{ color: "#d97706", fontSize: 10 }}>★ key module</div>
-          )}
-        </div>
-      ),
-    },
-    style: {
-      background: "#fff",
-      border: `2px solid ${KIND_COLOR[n.kind]}`,
-      borderRadius: 6,
-      padding: "8px 10px",
-      fontSize: 12,
-      boxShadow: n.key_module ? `0 0 0 3px ${KIND_COLOR[n.kind]}44` : undefined,
-    },
-  }));
-
-  const rfEdges: Edge[] = edges.map((e) => ({
-    id: e.edge_id,
-    source: e.source_id,
-    target: e.target_id,
-    label: e.relationship,
-    animated: e.evidence_status === "inferred",
-    style: {
-      stroke: EDGE_COLOR[e.evidence_status],
-      strokeDasharray: EVIDENCE_DASH[e.evidence_status],
-    },
-    labelStyle: { fontSize: 10, fill: "#57606a" },
-    labelBgStyle: { fill: "#fff", fillOpacity: 0.8 },
-  }));
-
-  return { rfNodes, rfEdges };
-}
+import type { FeatureArchitecture } from "@/types";
 
 interface Props {
   sessionId: string;
 }
 
-export default function ArchitectureMapView({ sessionId }: Props) {
-  const { data: xray, isPending, error } = useXRayGraph(sessionId);
-  const { mutate: triggerXRay, isPending: isTriggering } =
-    useTriggerXRay(sessionId);
-  const [selectedNode, setSelectedNode] = useState<GraphNode | null>(null);
-
-  const { rfNodes, rfEdges } = useMemo(() => {
-    if (!xray) return { rfNodes: [], rfEdges: [] };
-    return buildFlow(xray.nodes, xray.edges);
-  }, [xray]);
-
-  const handleNodeClick: NodeMouseHandler = useCallback(
-    (_evt, rfNode) => {
-      const node = xray?.nodes.find((n) => n.node_id === rfNode.id) ?? null;
-      setSelectedNode(node);
+function featureFlow(features: FeatureArchitecture[]): {
+  nodes: Node[];
+  edges: Edge[];
+} {
+  const nodes: Node[] = features.map((feature, index) => ({
+    id: feature.feature_id,
+    position: { x: (index % 3) * 300, y: Math.floor(index / 3) * 170 },
+    data: {
+      label: (
+        <div
+          title={feature.files.join("\n")}
+          style={{
+            width: "100%",
+            minWidth: 0,
+            whiteSpace: "normal",
+            overflowWrap: "anywhere",
+            wordBreak: "break-word",
+          }}
+        >
+          <strong style={{ display: "block", overflowWrap: "anywhere" }}>
+            {feature.name}
+          </strong>
+          <p
+            style={{
+              fontSize: 11,
+              lineHeight: 1.45,
+              margin: "5px 0 0",
+              overflowWrap: "anywhere",
+            }}
+          >
+            {feature.description}
+          </p>
+          <span style={{ fontSize: 10, color: "var(--muted)" }}>
+            {feature.files.length} files · hover to inspect
+          </span>
+        </div>
+      ),
     },
-    [xray],
+    style: {
+      width: 270,
+      boxSizing: "border-box",
+      overflow: "hidden",
+      border: "2px solid var(--accent)",
+      borderRadius: 8,
+      background: "#fff",
+    },
+  }));
+  const ids = new Set(features.map((feature) => feature.feature_id));
+  const edges = features.flatMap((feature) =>
+    feature.connected_feature_ids
+      .filter((target) => ids.has(target))
+      .map((target) => ({
+        id: `${feature.feature_id}:${target}`,
+        source: feature.feature_id,
+        target,
+        animated: true,
+      })),
+  );
+  return { nodes, edges };
+}
+
+function fileFlow(feature: FeatureArchitecture): { nodes: Node[]; edges: Edge[] } {
+  const nodes: Node[] = feature.files.map((path, index) => ({
+    id: path,
+    position: { x: (index % 3) * 280, y: Math.floor(index / 3) * 130 },
+    data: {
+      label: (
+        <div
+          style={{
+            width: "100%",
+            minWidth: 0,
+            whiteSpace: "normal",
+            overflowWrap: "anywhere",
+          }}
+        >
+          <strong>{path.split("/").at(-1)}</strong>
+          <div style={{ fontSize: 10, overflowWrap: "anywhere" }}>{path}</div>
+        </div>
+      ),
+    },
+    style: {
+      border: `2px solid ${feature.frontend_files.includes(path) ? "#7c5cd8" : "#16a34a"}`,
+      width: 250,
+      boxSizing: "border-box",
+      overflow: "hidden",
+      borderRadius: 7,
+      background: "#fff",
+    },
+  }));
+  const edges = feature.file_edges.map((edge, index) => ({
+    id: `${edge.source}:${edge.target}:${index}`,
+    source: edge.source,
+    target: edge.target,
+    label: "documented flow",
+  }));
+  return { nodes, edges };
+}
+
+export default function ArchitectureMapView({ sessionId }: Props) {
+  const { data, isPending, error } = useXRayGraph(sessionId);
+  const { mutate: trigger, isPending: isTriggering } = useTriggerXRay(sessionId);
+  const [selected, setSelected] = useState<FeatureArchitecture | null>(null);
+  const flow = useMemo(
+    () => (selected ? fileFlow(selected) : featureFlow(data?.features ?? [])),
+    [data, selected],
   );
 
-  if (isPending) {
+  if (isPending)
     return (
+      <div style={{ padding: 32 }}>
+        <Spinner /> Loading architecture…
+      </div>
+    );
+  if (error)
+    return (
+      <div style={{ padding: 32 }} className="text-danger">
+        {error.message}
+      </div>
+    );
+  if (!data || data.features.length === 0)
+    return (
+      <div style={{ padding: 32 }}>
+        <p style={{ marginBottom: 12 }}>
+          Run X-Ray to build the feature map from the supplied wiki.
+        </p>
+        <button
+          className="btn btn-primary"
+          disabled={isTriggering}
+          onClick={() => trigger()}
+        >
+          {isTriggering ? "Building…" : "Build Feature X-Ray"}
+        </button>
+      </div>
+    );
+
+  return (
+    <div style={{ height: "100%", minHeight: 620, position: "relative" }}>
       <div
         style={{
+          padding: "10px 16px",
+          borderBottom: "1px solid var(--border)",
           display: "flex",
           gap: 10,
           alignItems: "center",
-          padding: 32,
         }}
       >
-        <Spinner /> Loading architecture graph…
-      </div>
-    );
-  }
-
-  if (error) {
-    return (
-      <div style={{ padding: 32 }}>
-        <p className="text-danger" style={{ marginBottom: 12 }}>
-          Failed to load graph: {error.message}
-        </p>
-        <button
-          className="btn btn-primary"
-          onClick={() => triggerXRay()}
-          disabled={isTriggering}
-        >
-          {isTriggering ? "Running X-Ray…" : "Run X-Ray"}
-        </button>
-      </div>
-    );
-  }
-
-  if (!xray) {
-    return (
-      <div style={{ padding: 32 }}>
-        <p className="text-muted" style={{ marginBottom: 12 }}>
-          No X-Ray data yet. Trigger a scan to build the architecture map.
-        </p>
-        <button
-          className="btn btn-primary"
-          onClick={() => triggerXRay()}
-          disabled={isTriggering}
-        >
-          {isTriggering ? "Running X-Ray…" : "Run Repository X-Ray"}
-        </button>
-      </div>
-    );
-  }
-
-  if (xray.nodes.length === 0) {
-    return (
-      <div style={{ padding: 32 }}>
-        <p className="text-muted" style={{ marginBottom: 12 }}>
-          No architecture nodes have been extracted yet.
-        </p>
-        <button
-          className="btn btn-primary"
-          onClick={() => triggerXRay()}
-          disabled={isTriggering}
-        >
-          {isTriggering ? "Running X-Ray…" : "Run Repository X-Ray"}
-        </button>
-      </div>
-    );
-  }
-
-  const selectedEvidence: EvidenceRef[] = selectedNode
-    ? xray.edges
-        .filter(
-          (e) =>
-            e.source_id === selectedNode.node_id ||
-            e.target_id === selectedNode.node_id,
-        )
-        .map((e) => ({
-          file: e.file,
-          line: e.line,
-          snippet: e.note,
-          evidence_status: e.evidence_status,
-        }))
-    : [];
-
-  return (
-    <div style={{ display: "flex", height: "100%", minHeight: 600 }}>
-      {/* Graph canvas */}
-      <div style={{ flex: 1, position: "relative" }}>
-        {/* Warnings bar */}
-        {xray.warnings.length > 0 && (
-          <div
-            style={{
-              position: "absolute",
-              top: 0,
-              left: 0,
-              right: 0,
-              zIndex: 10,
-              background: "#fef9c3",
-              border: "1px solid #d97706",
-              borderRadius: "var(--radius)",
-              margin: 8,
-              padding: "6px 12px",
-              fontSize: 12,
-              color: "#92400e",
-            }}
-          >
-            {xray.warnings.join(" · ")}
-          </div>
+        {selected && (
+          <button className="btn btn-secondary" onClick={() => setSelected(null)}>
+            ← All features
+          </button>
         )}
-
+        <strong>{selected ? selected.name : "Feature architecture"}</strong>
+        <span className="text-muted" style={{ fontSize: 12 }}>
+          {selected
+            ? "File-level documented flow"
+            : "Click a feature to inspect its files"}
+        </span>
+      </div>
+      {data.warnings.length > 0 && (
+        <div style={{ padding: 8, background: "#fef9c3", fontSize: 11 }}>
+          {data.warnings.join(" · ")}
+        </div>
+      )}
+      <div style={{ height: "calc(100% - 48px)" }}>
         <ReactFlow
-          nodes={rfNodes}
-          edges={rfEdges}
-          onNodeClick={handleNodeClick}
+          nodes={flow.nodes}
+          edges={flow.edges}
+          onNodeClick={(_, node) => {
+            if (!selected)
+              setSelected(
+                data.features.find((feature) => feature.feature_id === node.id) ?? null,
+              );
+          }}
           fitView
-          fitViewOptions={{ padding: 0.15 }}
         >
           <Background />
           <Controls />
-          <MiniMap
-            nodeColor={(n) => {
-              const gn = xray.nodes.find((x) => x.node_id === n.id);
-              return gn ? KIND_COLOR[gn.kind] : "#ccc";
-            }}
-          />
+          <MiniMap />
         </ReactFlow>
-
-        {/* Legend */}
-        <div
-          style={{
-            position: "absolute",
-            bottom: 12,
-            left: 12,
-            background: "rgba(255,255,255,0.92)",
-            border: "1px solid var(--border)",
-            borderRadius: "var(--radius)",
-            padding: "8px 12px",
-            fontSize: 11,
-            display: "flex",
-            gap: 12,
-          }}
-        >
-          {Object.entries(KIND_COLOR).map(([kind, color]) => (
-            <span key={kind} style={{ display: "flex", alignItems: "center", gap: 4 }}>
-              <span
-                style={{
-                  width: 10,
-                  height: 10,
-                  background: color,
-                  borderRadius: 2,
-                  display: "inline-block",
-                }}
-              />
-              {kind}
-            </span>
-          ))}
-        </div>
       </div>
-
-      {/* Side panel */}
-      {selectedNode && (
-        <div style={{ width: 320, padding: 12, borderLeft: "1px solid var(--border)", overflowY: "auto" }}>
-          <div style={{ marginBottom: 12 }}>
-            <h3 style={{ marginBottom: 4 }}>{selectedNode.name}</h3>
-            <p className="text-muted mono" style={{ marginBottom: 8 }}>
-              {selectedNode.path}:{selectedNode.line_start}–{selectedNode.line_end}
-            </p>
-            <span
-              style={{
-                fontSize: 11,
-                padding: "2px 8px",
-                borderRadius: 10,
-                background: KIND_COLOR[selectedNode.kind] + "22",
-                color: KIND_COLOR[selectedNode.kind],
-                border: `1px solid ${KIND_COLOR[selectedNode.kind]}44`,
-              }}
-            >
-              {selectedNode.kind}
-            </span>
-          </div>
-
-          {selectedNode.summary && (
-            <p style={{ fontSize: 13, marginBottom: 12, color: "var(--text)" }}>
-              {selectedNode.summary}
-            </p>
-          )}
-
-          <EvidencePanel
-            refs={selectedEvidence}
-            onClose={() => setSelectedNode(null)}
-          />
-        </div>
-      )}
     </div>
   );
 }
